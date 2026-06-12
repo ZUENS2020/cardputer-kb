@@ -28,6 +28,7 @@
 #undef KEY_BACKSPACE
 #undef KEY_TAB
 #include <BleKeyboard.h>
+#include <NimBLEDevice.h>      // 直接拿电量特征做 notify (T-vK 只 setValue 不 notify)
 #include <Preferences.h>
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
@@ -436,6 +437,22 @@ void setup() {
   drawUI();
 }
 
+// T-vK 的 setBatteryLevel 只 setValue 不 notify，主机一直读到初始值。
+// 直接拿到 BAS(0x180F) 的电量特征(0x2A19)，setValue + notify，主机才会更新。
+static NimBLECharacteristic* battChar = nullptr;
+static void pushBatteryBle(uint8_t level) {
+  if (!battChar) {
+    NimBLEServer* s = NimBLEDevice::getServer();
+    if (!s) return;
+    NimBLEService* bas = s->getServiceByUUID(NimBLEUUID((uint16_t)0x180f));
+    if (!bas) return;
+    battChar = bas->getCharacteristic(NimBLEUUID((uint16_t)0x2a19));
+    if (!battChar) return;
+  }
+  battChar->setValue(&level, 1);
+  battChar->notify();
+}
+
 // ADV 用 pmic_m5pm1：getBatteryLevel() 是电压线性映射，负载下会抖。
 // 用 EMA 平滑 + 忽略错误读数 + 跟踪充电状态，再上报给 BLE 电量服务。
 static void updateBattery() {
@@ -448,7 +465,10 @@ static void updateBattery() {
   }
   bool ch = ((int)M5.Power.isCharging() == 1);    // 1 = is_charging
   if (ch != charging) { charging = ch; dirty = true; }
-  if (bleConn && batLevel >= 0) bleKeyboard.setBatteryLevel((uint8_t)batLevel);
+  if (bleConn && batLevel >= 0) {
+    bleKeyboard.setBatteryLevel((uint8_t)batLevel);   // 同步 T-vK 内部值
+    pushBatteryBle((uint8_t)batLevel);                // 真正 notify 主机
+  }
 }
 
 void loop() {
