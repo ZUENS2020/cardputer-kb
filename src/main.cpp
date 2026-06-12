@@ -5,17 +5,18 @@
 //   Alt         -> 选择模式开关 (本地)。开时方向键变 Shift+方向
 //   Opt         -> 发 Shift+Tab = 切换 Claude Code 模式
 //   方向键      -> 转发 ↑↓←→ (选择模式下加 Shift)
-//   Esc(` 键)   -> 转发 Esc
-//   Space/Enter/Del -> 转发 Space/Enter/Backspace
+//   Esc(` 键)   -> 转发 Esc (REC 状态下还会同步退出本地 REC 指示)
+//   Space/Del   -> 转发 Space/Backspace
+//   Enter 键    -> 发 Ctrl+Enter
+//   Fn 单独点按 -> 发 Enter
 //   Tab         -> Typeless 另一种输入 (和 Ctrl 同样处理: 单独按下/2s 间隔/带状态)
 //                  平台专属组合 (Mac: Ctrl+Alt+'，Win: RightAlt+Space)
-//   Fn + Enter   -> Ctrl+Enter
-//   Fn 层 (按住 Fn):
-//     Fn + P    -> 切换平台 Mac/Windows (存 NVS，各平台用不同听写组合键)
-//     Fn + ↑/↓  -> 切换当前平台的听写热键预设 (存 NVS)
-//     Fn + `    -> 返回 bmorcelli Launcher
+//   Aa(Shift) 层 (按住 Aa + 键):
+//     Aa + P    -> 切换平台 Mac/Windows (存 NVS)
+//     Aa + R    -> 重新配对 (清 bond + 重新广播)
+//     Aa + `    -> 返回 bmorcelli Launcher
 //
-// 串口命令: status / platform [mac|win] / hotkey <n> / send / keymap / reset
+// 串口命令: status / platform [mac|win] / hotkey <n> / send / keymap / reset / repair
 //
 // 详见 README.md
 
@@ -85,6 +86,8 @@ int  batLevel   = -1;      // 平滑后用于显示/上报的电量 %
 float battEma   = -1.0f;   // 电量 EMA (LiPo 电压随负载抖，需平滑)
 bool charging   = false;
 bool dirty      = true;    // UI 需重绘
+uint32_t repairMsgUntil = 0;   // 重新配对提示横幅显示截止时间
+NimBLECharacteristic* battChar = nullptr;   // BAS 电量特征 (0x2A19)
 
 // ---- UI sprite (8bit 省内存, 单缓冲) ----
 M5Canvas cv(&M5Cardputer.Display);
@@ -95,11 +98,9 @@ uint32_t keymapUntil = 0;
 
 // ---- 边沿检测状态 ----
 bool prevCtrl = false, prevAlt = false, prevOpt = false;
-bool prevTab = false;
-bool prevFnBacktick = false;
-bool prevFnEnter = false;
-bool prevFnP = false;
-char prevFnArrow = 0;
+bool prevTab = false, prevEsc = false;
+bool prevFn = false, fnSolo = false;   // Fn 单独点按检测
+bool prevShiftBacktick = false, prevShiftP = false, prevShiftR = false;  // Aa(Shift) 层
 uint8_t lastFwKey = 0; int lastFwMod = 0; uint32_t fwNextRepeat = 0;
 uint32_t lastDictMs = 0, lastSelMs = 0, lastOptMs = 0, lastTabMs = 0;   // 去抖冷却
 
@@ -144,6 +145,24 @@ static void returnToLauncher() {
 
 static void saveHotkey() {
   prefs.putUChar("hk", hotkeyIndex);
+}
+
+// 重新配对：断开当前连接 + 清掉所有 bond + 重新广播。
+// 之后需在主机蓝牙里删除旧的 "Cardputer Voice" 再重新配对。
+static void doRePair() {
+  NimBLEServer* s = NimBLEDevice::getServer();
+  if (s) {
+    for (uint16_t id : s->getPeerDevices()) s->disconnect(id);
+  }
+  delay(120);
+  NimBLEDevice::deleteAllBonds();
+  battChar = nullptr;                 // 重新连接后重新定位电量特征
+  NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
+  if (adv && !adv->isAdvertising()) adv->start();
+  bleConn = false;
+  repairMsgUntil = millis() + 3000;
+  dirty = true;
+  Serial.println("[repair] bonds cleared, re-advertising. Remove 'Cardputer Voice' on host and pair again.");
 }
 
 static void updateBattery();   // 见 loop 前定义
@@ -200,7 +219,18 @@ static void drawUI() {
   cv.setTextColor(platform ? TFT_CYAN : TFT_GREEN, TFT_BLACK);
   cv.drawString(String(platform ? "WIN" : "MAC") + "  mic:" + activeHK()[hotkeyIndex].name, 4, 120);
   cv.setTextColor(0x8410, TFT_BLACK);
-  cv.drawString("Ctrl=mic Opt=mode Alt=sel Fn+P=OS", 4, 132);
+  cv.drawString("Ctrl=mic Opt=mode Alt=sel Aa+P=OS", 4, 132);
+
+  // 重新配对横幅 (覆盖在最上层)
+  if (repairMsgUntil) {
+    cv.fillRect(0, 44, 240, 48, 0x000F);
+    cv.setTextDatum(MC_DATUM);
+    cv.setTextColor(TFT_YELLOW, 0x000F);
+    cv.setTextSize(2);
+    cv.drawString("RE-PAIRING", 120, 60);
+    cv.setTextSize(1);
+    cv.drawString("remove on host & pair again", 120, 82);
+  }
 
   cv.pushSprite(0, 0);
 }
@@ -258,8 +288,10 @@ static void handleCommand(String line) {
     selectMode = false;
     dirty = true;
     Serial.println("[reset] state -> IDLE, type2 off, select off");
+  } else if (line == "repair") {
+    doRePair();
   } else {
-    Serial.println("[?] cmds: status | platform [mac|win] | hotkey <n> | send | keymap | reset");
+    Serial.println("[?] cmds: status | platform [mac|win] | hotkey <n> | send | keymap | reset | repair");
   }
 }
 
@@ -329,22 +361,31 @@ static void handleKeyboard() {
     }
   }
 
+  // Fn 单独点按(松开时、按下期间无其他键) -> 发 Enter；Fn+其他键仍是层功能
+  if (ks.fn && !prevFn) fnSolo = true;
+  if (ks.fn && (!ks.word.empty() || ks.ctrl || ks.alt || ks.opt || ks.shift ||
+                ks.enter || ks.space || ks.del || ks.tab)) fnSolo = false;
+  if (!ks.fn && prevFn) {
+    if (fnSolo) sendKey(0, KEY_RETURN);
+    fnSolo = false;
+  }
+  prevFn = ks.fn;
+
   bool backtick = hasChar(ks.word, '`') || hasChar(ks.word, '~');
 
-  // Fn 层: 配置 / Launcher (不转发普通键)
-  if (ks.fn) {
-    // Fn + ` -> 返回 Launcher
-    bool fnBacktick = backtick;
-    if (fnBacktick && !prevFnBacktick) returnToLauncher();
-    prevFnBacktick = fnBacktick;
+  // REC 状态下按 Esc -> 同步退出本地 REC 指示 (仅非 Shift 层；Esc 照常转发)
+  if (!ks.shift && backtick && !prevEsc && recState) { recState = false; dirty = true; }
+  prevEsc = backtick;
 
-    // Fn + Enter -> Ctrl+Enter
-    if (ks.enter && !prevFnEnter) sendKey(KEY_LEFT_CTRL, KEY_RETURN);
-    prevFnEnter = ks.enter;
+  // Aa(Shift) 层: 组合功能 (不转发普通键)
+  if (ks.shift) {
+    // Shift + ` -> 返回 Launcher
+    if (backtick && !prevShiftBacktick) returnToLauncher();
+    prevShiftBacktick = backtick;
 
-    // Fn + P -> 切换平台 (Mac <-> Windows)，存 NVS
-    bool fnP = hasChar(ks.word, 'p') || hasChar(ks.word, 'P');
-    if (fnP && !prevFnP) {
+    // Shift + P -> 切换平台 (Mac <-> Windows)，存 NVS
+    bool sP = hasChar(ks.word, 'p') || hasChar(ks.word, 'P');
+    if (sP && !prevShiftP) {
       platform ^= 1;
       if (hotkeyIndex >= activeHKCount()) hotkeyIndex = 0;
       prefs.putUChar("plat", platform);
@@ -352,29 +393,19 @@ static void handleKeyboard() {
       dirty = true;
       Serial.printf("[platform] -> %s\n", platform ? "Windows" : "Mac");
     }
-    prevFnP = fnP;
+    prevShiftP = sP;
 
-    // Fn + 上/下 -> 切换听写热键预设
-    char fnArrow = 0;
-    if (hasChar(ks.word, ARROW_UP))   fnArrow = 'U';
-    else if (hasChar(ks.word, ARROW_DOWN)) fnArrow = 'D';
-    if (fnArrow && fnArrow != prevFnArrow) {
-      uint8_t n = activeHKCount();
-      if (fnArrow == 'U') hotkeyIndex = (hotkeyIndex + n - 1) % n;
-      else                hotkeyIndex = (hotkeyIndex + 1) % n;
-      saveHotkey();
-      dirty = true;
-      Serial.printf("[hotkey] -> %s\n", activeHK()[hotkeyIndex].name);
-    }
-    prevFnArrow = fnArrow;
+    // Shift + R -> 重新配对 (清 bond + 重新广播)
+    bool sR = hasChar(ks.word, 'r') || hasChar(ks.word, 'R');
+    if (sR && !prevShiftR) doRePair();
+    prevShiftR = sR;
 
-    // Fn 按下时不做普通转发，清空转发态
+    // Shift 层不做普通转发
     lastFwKey = 0; lastFwMod = 0;
   } else {
-    prevFnBacktick = false;
-    prevFnEnter = false;
-    prevFnP = false;
-    prevFnArrow = 0;
+    prevShiftBacktick = false;
+    prevShiftP = false;
+    prevShiftR = false;
 
     // --- 转发键判定 ---
     uint8_t curKey = 0; int curMod = 0; bool curIsArrow = false; bool curRepeat = false;
@@ -384,8 +415,8 @@ static void handleKeyboard() {
     else if (hasChar(ks.word, ARROW_RIGHT)) { curKey = KEY_RIGHT_ARROW; curIsArrow = true; }
     else if (backtick)                      { curKey = KEY_ESC; }
     else if (ks.space)                      { curKey = ' '; }
-    else if (ks.enter)                      { curKey = KEY_RETURN; }
-    else if (ks.del)                        { curKey = KEY_BACKSPACE; curRepeat = true; }  // 退格：按住连删
+    else if (ks.enter)                      { curKey = KEY_RETURN; curMod = KEY_LEFT_CTRL; }  // Enter 键 = Ctrl+Enter
+    else if (ks.del)                        { curKey = KEY_BACKSPACE; curRepeat = true; }     // 退格：按住连删
 
     if (curKey && curIsArrow && selectMode) curMod = KEY_LEFT_SHIFT;
     curRepeat = curRepeat || curIsArrow;     // 方向键与退格支持长按重复
@@ -439,7 +470,6 @@ void setup() {
 
 // T-vK 的 setBatteryLevel 只 setValue 不 notify，主机一直读到初始值。
 // 直接拿到 BAS(0x180F) 的电量特征(0x2A19)，setValue + notify，主机才会更新。
-static NimBLECharacteristic* battChar = nullptr;
 static void pushBatteryBle(uint8_t level) {
   if (!battChar) {
     NimBLEServer* s = NimBLEDevice::getServer();
@@ -487,6 +517,7 @@ void loop() {
     tBatt = millis();
     updateBattery();
   }
+  if (repairMsgUntil && millis() > repairMsgUntil) { repairMsgUntil = 0; dirty = true; }
 
   if (dirty) { drawUI(); dirty = false; }
 
