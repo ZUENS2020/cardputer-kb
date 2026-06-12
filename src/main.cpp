@@ -7,11 +7,13 @@
 //   方向键      -> 转发 ↑↓←→ (选择模式下加 Shift)
 //   Esc(` 键)   -> 转发 Esc
 //   Space/Enter/Del/Tab -> 转发 Space/Enter/Backspace/Tab
+//   Fn + Enter   -> Ctrl+Enter
 //   Fn 层 (按住 Fn):
-//     Fn + ↑/↓  -> 切换听写热键预设 (存 NVS)
+//     Fn + P    -> 切换平台 Mac/Windows (存 NVS，各平台用不同听写组合键)
+//     Fn + ↑/↓  -> 切换当前平台的听写热键预设 (存 NVS)
 //     Fn + `    -> 返回 bmorcelli Launcher
 //
-// 串口命令: status / hotkey <0|1|2> / send / keymap / reset
+// 串口命令: status / platform [mac|win] / hotkey <n> / send / keymap / reset
 //
 // 详见 README.md
 
@@ -34,20 +36,32 @@ BleKeyboard bleKeyboard("Cardputer Voice", "M5Stack", 100);
 // ---- 配置持久化 ----
 Preferences prefs;
 
-// ---- 听写热键预设 (≤3 键、可在 Mac 手按绑定、无系统冲突) ----
+// ---- 听写热键预设：按平台分两套 (Mac / Windows) ----
+// BLE HID 无法可靠探测主机系统，所以用一个记忆在 NVS 的平台开关 (Fn+P 切换)。
 struct Hotkey {
   const char* name;
   uint8_t mods[2];
   uint8_t nmod;
   char    key;
 };
-static const Hotkey HK[] = {
+static const Hotkey HK_MAC[] = {
   {"Ctrl+Alt+\\", {KEY_LEFT_CTRL, KEY_LEFT_ALT}, 2, '\\'},  // 默认 (Control+Option+Backslash)
   {"Ctrl+Alt+.",  {KEY_LEFT_CTRL, KEY_LEFT_ALT}, 2, '.'},   // (Control+Option+Period)
   {"Alt+Cmd+\\",  {KEY_LEFT_ALT,  KEY_LEFT_GUI}, 2, '\\'},  // (Option+Command+Backslash)
 };
-static const uint8_t HK_COUNT = sizeof(HK) / sizeof(HK[0]);
+static const Hotkey HK_WIN[] = {
+  {"Win+H",       {KEY_LEFT_GUI}, 1, 'h'},                  // Windows 内置语音输入
+  {"Ctrl+Alt+\\", {KEY_LEFT_CTRL, KEY_LEFT_ALT}, 2, '\\'},  // 第三方听写 (同 Mac 默认)
+  {"Ctrl+Alt+.",  {KEY_LEFT_CTRL, KEY_LEFT_ALT}, 2, '.'},
+};
+static const uint8_t HK_MAC_COUNT = sizeof(HK_MAC) / sizeof(HK_MAC[0]);
+static const uint8_t HK_WIN_COUNT = sizeof(HK_WIN) / sizeof(HK_WIN[0]);
+
+uint8_t platform    = 0;   // 0 = Mac, 1 = Windows
 uint8_t hotkeyIndex = 0;
+
+static const Hotkey* activeHK()      { return platform ? HK_WIN : HK_MAC; }
+static uint8_t       activeHKCount() { return platform ? HK_WIN_COUNT : HK_MAC_COUNT; }
 
 // ---- 方向键字符映射 (实机用串口 `keymap` 确认；默认社区常见映射) ----
 static char ARROW_UP    = ';';
@@ -73,6 +87,7 @@ uint32_t keymapUntil = 0;
 bool prevCtrl = false, prevAlt = false, prevOpt = false;
 bool prevFnBacktick = false;
 bool prevFnEnter = false;
+bool prevFnP = false;
 char prevFnArrow = 0;
 uint8_t lastFwKey = 0; int lastFwMod = 0; uint32_t fwNextRepeat = 0;
 uint32_t lastDictMs = 0, lastSelMs = 0, lastOptMs = 0;   // 去抖冷却
@@ -83,7 +98,7 @@ uint32_t lastDictMs = 0, lastSelMs = 0, lastOptMs = 0;   // 去抖冷却
 // 否则报文挨太近会被 BLE 丢掉或被主机识别不全 (Typeless 偶尔收不到)。
 static void sendHotkey() {
   if (!bleKeyboard.isConnected()) return;
-  const Hotkey& h = HK[hotkeyIndex];
+  const Hotkey& h = activeHK()[hotkeyIndex];
   for (uint8_t i = 0; i < h.nmod; i++) { bleKeyboard.press(h.mods[i]); delay(15); }
   bleKeyboard.press(h.key);
   delay(45);                  // 按住整组，确保主机稳定识别
@@ -155,11 +170,13 @@ static void drawUI() {
     cv.drawString("SELECT", 120, 95);
   }
 
-  // 底栏: 按键速查 (mic 提示已含在此，不再单列 Mic key)
+  // 底栏: 平台 + 当前听写键，再加按键速查
   cv.setTextSize(1);
-  cv.setTextColor(0x8410, TFT_BLACK);
   cv.setTextDatum(BL_DATUM);
-  cv.drawString("Ctrl=mic Opt=mode Alt=sel", 4, 132);
+  cv.setTextColor(platform ? TFT_CYAN : TFT_GREEN, TFT_BLACK);
+  cv.drawString(String(platform ? "WIN" : "MAC") + "  mic:" + activeHK()[hotkeyIndex].name, 4, 120);
+  cv.setTextColor(0x8410, TFT_BLACK);
+  cv.drawString("Ctrl=mic Opt=mode Alt=sel Fn+P=OS", 4, 132);
 
   cv.pushSprite(0, 0);
 }
@@ -167,11 +184,12 @@ static void drawUI() {
 // ===================== 串口控制台 =====================
 
 static void printStatus() {
-  Serial.printf("[status] BLE=%s rec=%s select=%s hotkey=%s(%d) batt=%d%%\n",
+  Serial.printf("[status] BLE=%s platform=%s rec=%s select=%s hotkey=%s(%d) batt=%d%%\n",
                 bleConn ? "connected" : "advertising",
+                platform ? "Windows" : "Mac",
                 recState ? "REC" : "IDLE",
                 selectMode ? "on" : "off",
-                HK[hotkeyIndex].name, hotkeyIndex, batLevel);
+                activeHK()[hotkeyIndex].name, hotkeyIndex, batLevel);
 }
 
 static void handleCommand(String line) {
@@ -180,16 +198,26 @@ static void handleCommand(String line) {
 
   if (line == "status") {
     printStatus();
+  } else if (line.startsWith("platform")) {
+    String a = line.substring(8); a.trim();
+    if (a == "mac")      platform = 0;
+    else if (a == "win") platform = 1;
+    else                 platform ^= 1;          // 无参数则切换
+    if (hotkeyIndex >= activeHKCount()) hotkeyIndex = 0;
+    prefs.putUChar("plat", platform);
+    saveHotkey();
+    dirty = true;
+    Serial.printf("[platform] -> %s\n", platform ? "Windows" : "Mac");
   } else if (line.startsWith("hotkey")) {
     int idx = line.substring(6).toInt();
-    if (idx >= 0 && idx < HK_COUNT) {
+    if (idx >= 0 && idx < activeHKCount()) {
       hotkeyIndex = idx;
       saveHotkey();
       dirty = true;
-      Serial.printf("[hotkey] -> %s\n", HK[hotkeyIndex].name);
+      Serial.printf("[hotkey] -> %s\n", activeHK()[hotkeyIndex].name);
     } else {
-      Serial.printf("[hotkey] usage: hotkey <0..%d>\n", HK_COUNT - 1);
-      for (uint8_t i = 0; i < HK_COUNT; i++) Serial.printf("  %d = %s\n", i, HK[i].name);
+      Serial.printf("[hotkey] usage: hotkey <0..%d> (%s)\n", activeHKCount() - 1, platform ? "Win" : "Mac");
+      for (uint8_t i = 0; i < activeHKCount(); i++) Serial.printf("  %d = %s\n", i, activeHK()[i].name);
     }
   } else if (line == "send") {
     sendHotkey();
@@ -205,7 +233,7 @@ static void handleCommand(String line) {
     dirty = true;
     Serial.println("[reset] state -> IDLE, select off");
   } else {
-    Serial.println("[?] cmds: status | hotkey <n> | send | keymap | reset");
+    Serial.println("[?] cmds: status | platform [mac|win] | hotkey <n> | send | keymap | reset");
   }
 }
 
@@ -280,16 +308,29 @@ static void handleKeyboard() {
     if (ks.enter && !prevFnEnter) sendKey(KEY_LEFT_CTRL, KEY_RETURN);
     prevFnEnter = ks.enter;
 
+    // Fn + P -> 切换平台 (Mac <-> Windows)，存 NVS
+    bool fnP = hasChar(ks.word, 'p') || hasChar(ks.word, 'P');
+    if (fnP && !prevFnP) {
+      platform ^= 1;
+      if (hotkeyIndex >= activeHKCount()) hotkeyIndex = 0;
+      prefs.putUChar("plat", platform);
+      saveHotkey();
+      dirty = true;
+      Serial.printf("[platform] -> %s\n", platform ? "Windows" : "Mac");
+    }
+    prevFnP = fnP;
+
     // Fn + 上/下 -> 切换听写热键预设
     char fnArrow = 0;
     if (hasChar(ks.word, ARROW_UP))   fnArrow = 'U';
     else if (hasChar(ks.word, ARROW_DOWN)) fnArrow = 'D';
     if (fnArrow && fnArrow != prevFnArrow) {
-      if (fnArrow == 'U') hotkeyIndex = (hotkeyIndex + HK_COUNT - 1) % HK_COUNT;
-      else                hotkeyIndex = (hotkeyIndex + 1) % HK_COUNT;
+      uint8_t n = activeHKCount();
+      if (fnArrow == 'U') hotkeyIndex = (hotkeyIndex + n - 1) % n;
+      else                hotkeyIndex = (hotkeyIndex + 1) % n;
       saveHotkey();
       dirty = true;
-      Serial.printf("[hotkey] -> %s\n", HK[hotkeyIndex].name);
+      Serial.printf("[hotkey] -> %s\n", activeHK()[hotkeyIndex].name);
     }
     prevFnArrow = fnArrow;
 
@@ -298,6 +339,7 @@ static void handleKeyboard() {
   } else {
     prevFnBacktick = false;
     prevFnEnter = false;
+    prevFnP = false;
     prevFnArrow = 0;
 
     // --- 转发键判定 ---
@@ -347,12 +389,14 @@ void setup() {
   cv.createSprite(240, 135);
 
   prefs.begin("typeless", false);
+  platform    = prefs.getUChar("plat", 0) ? 1 : 0;
   hotkeyIndex = prefs.getUChar("hk", 0);
-  if (hotkeyIndex >= HK_COUNT) hotkeyIndex = 0;
+  if (hotkeyIndex >= activeHKCount()) hotkeyIndex = 0;
 
   Serial.begin(115200);
   Serial.println("\n[boot] Cardputer Voice (BLE HID) -> Typeless / Claude Code");
-  Serial.printf("[boot] hotkey=%s  cmds: status|hotkey <n>|send|keymap|reset\n", HK[hotkeyIndex].name);
+  Serial.printf("[boot] platform=%s hotkey=%s  cmds: status|platform [mac|win]|hotkey <n>|send|keymap|reset\n",
+                platform ? "Windows" : "Mac", activeHK()[hotkeyIndex].name);
 
   bleKeyboard.begin();
   drawUI();
