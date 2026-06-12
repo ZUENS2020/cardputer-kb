@@ -336,14 +336,14 @@ static void handleKeyboard() {
 
   // Ctrl 按下 -> 听写 (2s 间隔防快按失步)
   if (ks.ctrl && !prevCtrl) {
-    if (!ks.alt && !ks.opt && !ks.fn && !ks.shift && !otherKey && millis() - lastDictMs > 2000) {
+    if (!ks.alt && !ks.opt && !ks.fn && !ks.shift && !otherKey && millis() - lastDictMs > 500) {
       sendHotkey(); recState = !recState; lastDictMs = millis(); dirty = true;
     }
   }
   // Tab 按下 -> Typeless 另一种输入 (与 Ctrl 一致: 单独按下 + 2s 间隔)
   if (ks.tab && !prevTab) {
     bool tabOther = !ks.word.empty() || ks.enter || ks.space || ks.del;  // tab 以外的其他键
-    if (!ks.ctrl && !ks.alt && !ks.opt && !ks.fn && !ks.shift && !tabOther && millis() - lastTabMs > 2000) {
+    if (!ks.ctrl && !ks.alt && !ks.opt && !ks.fn && !ks.shift && !tabOther && millis() - lastTabMs > 500) {
       sendHotkeyDef(platform ? TAB_WIN : TAB_MAC);
       recState2 = !recState2; lastTabMs = millis(); dirty = true;
     }
