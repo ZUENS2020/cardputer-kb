@@ -36,7 +36,9 @@ BLE HID 协议无法可靠探测主机系统，所以用一个**记忆在 NVS �
 | 平台 | 预设（`Fn+↑/↓` 循环） |
 |---|---|
 | **Mac** | `⌃⌥\`（默认，Typeless）/ `⌃⌥.` / `⌥⌘\` |
-| **Windows** | `Win+H`（系统内置语音输入，默认）/ `Ctrl+Alt+\` / `Ctrl+Alt+.` |
+| **Windows** | `Ctrl+Alt+\`（默认，Typeless，与 Mac 同一 HID 组合）/ `Ctrl+Alt+.` / `Ctrl+Shift+\` |
+
+> Mac 与 Windows 默认都是同一个 HID 组合（Ctrl+Alt+\），所以 Typeless 里**绑定一次两边通用**。
 
 ---
 
@@ -77,8 +79,8 @@ USB 口复位后会在 `/dev/cu.usbmodem1101 ↔ 1201` 间跳；脚本里动态�
 
 ### Windows
 
-1. **语音输入**：默认预设是 **`Win+H`**（Windows 内置语音输入，无需装软件，按一下打开/说话）。
-   若用第三方听写工具，`Fn+↑/↓` 切到 `Ctrl+Alt+\` / `Ctrl+Alt+.` 并在该工具里绑定同样的热键。
+1. **Typeless 听写热键**：默认预设 **`Ctrl+Alt+\`**，和 Mac 是同一个 HID 组合，所以 Typeless 里绑定一次两边通用，
+   模式设为点按切换。若某些键盘把 `Ctrl+Alt` 当 AltGr 导致冲突，`Fn+↑/↓` 切到 `Ctrl+Shift+\` 并在 Typeless 里改绑。
 2. **蓝牙配对**：设置 → 蓝牙和其他设备 → 添加设备 → 配对 **“Cardputer Voice”**。
 
 ### 通用用法

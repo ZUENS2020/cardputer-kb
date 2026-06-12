@@ -50,9 +50,9 @@ static const Hotkey HK_MAC[] = {
   {"Alt+Cmd+\\",  {KEY_LEFT_ALT,  KEY_LEFT_GUI}, 2, '\\'},  // (Option+Command+Backslash)
 };
 static const Hotkey HK_WIN[] = {
-  {"Win+H",       {KEY_LEFT_GUI}, 1, 'h'},                  // Windows 内置语音输入
-  {"Ctrl+Alt+\\", {KEY_LEFT_CTRL, KEY_LEFT_ALT}, 2, '\\'},  // 第三方听写 (同 Mac 默认)
-  {"Ctrl+Alt+.",  {KEY_LEFT_CTRL, KEY_LEFT_ALT}, 2, '.'},
+  {"Ctrl+Alt+\\",  {KEY_LEFT_CTRL, KEY_LEFT_ALT},   2, '\\'},  // Typeless (与 Mac 默认同一 HID 组合)
+  {"Ctrl+Alt+.",   {KEY_LEFT_CTRL, KEY_LEFT_ALT},   2, '.'},   // Typeless 备选
+  {"Ctrl+Shift+\\",{KEY_LEFT_CTRL, KEY_LEFT_SHIFT}, 2, '\\'},  // 避开部分键盘 AltGr(=Ctrl+Alt) 冲突
 };
 static const uint8_t HK_MAC_COUNT = sizeof(HK_MAC) / sizeof(HK_MAC[0]);
 static const uint8_t HK_WIN_COUNT = sizeof(HK_WIN) / sizeof(HK_WIN[0]);
