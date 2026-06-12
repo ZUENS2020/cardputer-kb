@@ -15,12 +15,13 @@
 
 | Cardputer 键 | 作用 |
 |---|---|
-| **Ctrl** | 发听写热键（按平台不同）= 开/关听写（点按切换；2s 最小间隔防失步） |
+| **Ctrl** | 发听写热键（按平台不同）= 开/关听写（点按切换；单独按下 + 2s 间隔防失步） |
+| **Tab** | Typeless **另一种输入**，与 Ctrl 同样处理（单独按下 + 2s 间隔 + 状态）。Mac=`Ctrl+Alt+'`，Win=`Right Alt+Space` |
 | **Alt** | 选择模式开/关（本地）。开时方向键 → `Shift+方向` |
 | **Opt** | 发 `Shift+Tab` = 切换 Claude Code 模式 |
 | **方向键** | 转发 ↑↓←→（长按重复；选择模式下加 Shift） |
 | **`** (Esc 位) | 转发 `Esc` |
-| **Space / Enter / Del / Tab** | 转发 空格 / 回车 / Backspace（长按连删）/ Tab |
+| **Space / Enter / Del** | 转发 空格 / 回车 / Backspace（长按连删） |
 | **Fn + Enter** | 发 `Ctrl+Enter` |
 | **Fn + P** | 切换平台 **Mac ↔ Windows**（存 NVS，各平台用不同听写组合键） |
 | **Fn + ↑ / ↓** | 切换当前平台的听写热键预设（存 NVS，重启保留） |
@@ -36,9 +37,9 @@ BLE HID 协议无法可靠探测主机系统，所以用一个**记忆在 NVS �
 | 平台 | 预设（`Fn+↑/↓` 循环） |
 |---|---|
 | **Mac** | `⌃⌥\`（默认，Typeless）/ `⌃⌥.` / `⌥⌘\` |
-| **Windows** | `Ctrl+Alt+\`（默认，Typeless，与 Mac 同一 HID 组合）/ `Ctrl+Alt+.` / `Ctrl+Shift+\` |
+| **Windows** | `Right Alt`（默认，单独右 Alt）/ `Ctrl+Alt+\` / `Ctrl+Shift+\` |
 
-> Mac 与 Windows 默认都是同一个 HID 组合（Ctrl+Alt+\），所以 Typeless 里**绑定一次两边通用**。
+**Tab（Typeless 第二输入）的平台组合**：Mac=`Ctrl+Alt+'`，Windows=`Right Alt+Space`（在 Typeless 里把第二输入绑成对应组合）。
 
 ---
 

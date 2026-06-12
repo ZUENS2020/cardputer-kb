@@ -6,7 +6,9 @@
 //   Opt         -> 发 Shift+Tab = 切换 Claude Code 模式
 //   方向键      -> 转发 ↑↓←→ (选择模式下加 Shift)
 //   Esc(` 键)   -> 转发 Esc
-//   Space/Enter/Del/Tab -> 转发 Space/Enter/Backspace/Tab
+//   Space/Enter/Del -> 转发 Space/Enter/Backspace
+//   Tab         -> Typeless 另一种输入 (和 Ctrl 同样处理: 单独按下/2s 间隔/带状态)
+//                  平台专属组合 (Mac: Ctrl+Alt+'，Win: RightAlt+Space)
 //   Fn + Enter   -> Ctrl+Enter
 //   Fn 层 (按住 Fn):
 //     Fn + P    -> 切换平台 Mac/Windows (存 NVS，各平台用不同听写组合键)
@@ -50,12 +52,16 @@ static const Hotkey HK_MAC[] = {
   {"Alt+Cmd+\\",  {KEY_LEFT_ALT,  KEY_LEFT_GUI}, 2, '\\'},  // (Option+Command+Backslash)
 };
 static const Hotkey HK_WIN[] = {
-  {"Ctrl+Alt+\\",  {KEY_LEFT_CTRL, KEY_LEFT_ALT},   2, '\\'},  // Typeless (与 Mac 默认同一 HID 组合)
-  {"Ctrl+Alt+.",   {KEY_LEFT_CTRL, KEY_LEFT_ALT},   2, '.'},   // Typeless 备选
+  {"RightAlt",     {KEY_RIGHT_ALT}, 1, 0},                     // 默认: 单独右 Alt (Typeless 绑定)
+  {"Ctrl+Alt+\\",  {KEY_LEFT_CTRL, KEY_LEFT_ALT},   2, '\\'},  // 备选
   {"Ctrl+Shift+\\",{KEY_LEFT_CTRL, KEY_LEFT_SHIFT}, 2, '\\'},  // 避开部分键盘 AltGr(=Ctrl+Alt) 冲突
 };
 static const uint8_t HK_MAC_COUNT = sizeof(HK_MAC) / sizeof(HK_MAC[0]);
 static const uint8_t HK_WIN_COUNT = sizeof(HK_WIN) / sizeof(HK_WIN[0]);
+
+// Tab 键发的平台专属组合键
+static const Hotkey TAB_MAC = {"Ctrl+Alt+'", {KEY_LEFT_CTRL, KEY_LEFT_ALT}, 2, '\''};  // Control+Option+'
+static const Hotkey TAB_WIN = {"RAlt+Space",  {KEY_RIGHT_ALT}, 1, ' '};                // Right Alt+Space
 
 uint8_t platform    = 0;   // 0 = Mac, 1 = Windows
 uint8_t hotkeyIndex = 0;
@@ -71,6 +77,7 @@ static char ARROW_RIGHT = '/';
 
 // ---- 运行态 ----
 bool recState   = false;   // 听写假设状态 (单向发键无法读真值)
+bool recState2  = false;   // Tab = Typeless 另一种输入的假设状态
 bool selectMode = false;   // 选择模式
 bool bleConn    = false;
 int  batLevel   = -1;
@@ -85,26 +92,29 @@ uint32_t keymapUntil = 0;
 
 // ---- 边沿检测状态 ----
 bool prevCtrl = false, prevAlt = false, prevOpt = false;
+bool prevTab = false;
 bool prevFnBacktick = false;
 bool prevFnEnter = false;
 bool prevFnP = false;
 char prevFnArrow = 0;
 uint8_t lastFwKey = 0; int lastFwMod = 0; uint32_t fwNextRepeat = 0;
-uint32_t lastDictMs = 0, lastSelMs = 0, lastOptMs = 0;   // 去抖冷却
+uint32_t lastDictMs = 0, lastSelMs = 0, lastOptMs = 0, lastTabMs = 0;   // 去抖冷却
 
 // ===================== 工具 =====================
 
 // BLE HID 组合键要稳：每个按键报文之间留间隔，整体按住一会儿再松开，
 // 否则报文挨太近会被 BLE 丢掉或被主机识别不全 (Typeless 偶尔收不到)。
-static void sendHotkey() {
+// key==0 表示纯修饰键 (如单独 Right Alt)，只发修饰键不带主键。
+static void sendHotkeyDef(const Hotkey& h) {
   if (!bleKeyboard.isConnected()) return;
-  const Hotkey& h = activeHK()[hotkeyIndex];
   for (uint8_t i = 0; i < h.nmod; i++) { bleKeyboard.press(h.mods[i]); delay(15); }
-  bleKeyboard.press(h.key);
+  if (h.key) bleKeyboard.press(h.key);
   delay(45);                  // 按住整组，确保主机稳定识别
   bleKeyboard.releaseAll();
   delay(15);                  // 给松开报文留出时间
 }
+
+static void sendHotkey() { sendHotkeyDef(activeHK()[hotkeyIndex]); }
 
 static void sendKey(int mod, uint8_t key) {
   if (!bleKeyboard.isConnected()) return;
@@ -150,6 +160,11 @@ static void drawUI() {
     cv.setTextDatum(TR_DATUM);
     cv.drawString(bat, 236, 4);
   }
+  if (recState2) {                       // Tab = Typeless 另一种输入，开启时顶栏中间标注
+    cv.setTextColor(TFT_ORANGE, TFT_BLACK);
+    cv.setTextDatum(TC_DATUM);
+    cv.drawString("TYPE2:ON", 120, 4);
+  }
   cv.drawFastHLine(0, 18, 240, 0x4208);
 
   // 中部大字: 听写状态
@@ -184,10 +199,11 @@ static void drawUI() {
 // ===================== 串口控制台 =====================
 
 static void printStatus() {
-  Serial.printf("[status] BLE=%s platform=%s rec=%s select=%s hotkey=%s(%d) batt=%d%%\n",
+  Serial.printf("[status] BLE=%s platform=%s rec=%s type2=%s select=%s hotkey=%s(%d) batt=%d%%\n",
                 bleConn ? "connected" : "advertising",
                 platform ? "Windows" : "Mac",
                 recState ? "REC" : "IDLE",
+                recState2 ? "on" : "off",
                 selectMode ? "on" : "off",
                 activeHK()[hotkeyIndex].name, hotkeyIndex, batLevel);
 }
@@ -229,9 +245,10 @@ static void handleCommand(String line) {
     Serial.println("[keymap] press keys on Cardputer for 10s; printing keysState...");
   } else if (line == "reset") {
     recState = false;
+    recState2 = false;
     selectMode = false;
     dirty = true;
-    Serial.println("[reset] state -> IDLE, select off");
+    Serial.println("[reset] state -> IDLE, type2 off, select off");
   } else {
     Serial.println("[?] cmds: status | platform [mac|win] | hotkey <n> | send | keymap | reset");
   }
@@ -280,6 +297,14 @@ static void handleKeyboard() {
   if (ks.ctrl && !prevCtrl) {
     if (!ks.alt && !ks.opt && !ks.fn && !ks.shift && !otherKey && millis() - lastDictMs > 2000) {
       sendHotkey(); recState = !recState; lastDictMs = millis(); dirty = true;
+    }
+  }
+  // Tab 按下 -> Typeless 另一种输入 (与 Ctrl 一致: 单独按下 + 2s 间隔)
+  if (ks.tab && !prevTab) {
+    bool tabOther = !ks.word.empty() || ks.enter || ks.space || ks.del;  // tab 以外的其他键
+    if (!ks.ctrl && !ks.alt && !ks.opt && !ks.fn && !ks.shift && !tabOther && millis() - lastTabMs > 2000) {
+      sendHotkeyDef(platform ? TAB_WIN : TAB_MAC);
+      recState2 = !recState2; lastTabMs = millis(); dirty = true;
     }
   }
   // Alt 按下 -> 选择模式
@@ -352,7 +377,6 @@ static void handleKeyboard() {
     else if (ks.space)                      { curKey = ' '; }
     else if (ks.enter)                      { curKey = KEY_RETURN; }
     else if (ks.del)                        { curKey = KEY_BACKSPACE; curRepeat = true; }  // 退格：按住连删
-    else if (ks.tab)                        { curKey = KEY_TAB; }
 
     if (curKey && curIsArrow && selectMode) curMod = KEY_LEFT_SHIFT;
     curRepeat = curRepeat || curIsArrow;     // 方向键与退格支持长按重复
@@ -376,6 +400,7 @@ static void handleKeyboard() {
   prevCtrl = ks.ctrl;
   prevAlt  = ks.alt;
   prevOpt  = ks.opt;
+  prevTab  = ks.tab;
 }
 
 // ===================== Arduino =====================
