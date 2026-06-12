@@ -1,0 +1,363 @@
+// Cardputer ADV -> Typeless 语音输入 + Claude Code 控制台 (BLE HID)
+//
+// 电脑把本机当蓝牙键盘。Cardputer 按键映射：
+//   Ctrl        -> 发听写热键 (默认 Ctrl+Alt+\) = Typeless 听写开/关 (toggle)
+//   Alt         -> 选择模式开关 (本地)。开时方向键变 Shift+方向
+//   Opt         -> 发 Shift+Tab = 切换 Claude Code 模式
+//   方向键      -> 转发 ↑↓←→ (选择模式下加 Shift)
+//   Esc(` 键)   -> 转发 Esc
+//   Space/Enter/Del/Tab -> 转发 Space/Enter/Backspace/Tab
+//   Fn 层 (按住 Fn):
+//     Fn + ↑/↓  -> 切换听写热键预设 (存 NVS)
+//     Fn + `    -> 返回 bmorcelli Launcher
+//
+// 串口命令: status / hotkey <0|1|2> / send / keymap / reset
+//
+// 详见 README.md
+
+#include <M5Cardputer.h>
+// M5Cardputer 的 Keyboard_def.h 把这些名字定义成宏 (HID 内部码)，会和
+// ESP32-BLE-Keyboard 的同名常量冲突。先 undef，让 BLE 库的常量生效。
+#undef KEY_LEFT_CTRL
+#undef KEY_LEFT_SHIFT
+#undef KEY_LEFT_ALT
+#undef KEY_BACKSPACE
+#undef KEY_TAB
+#include <BleKeyboard.h>
+#include <Preferences.h>
+#include <esp_ota_ops.h>
+#include <esp_partition.h>
+
+// ---- BLE HID ----
+BleKeyboard bleKeyboard("Cardputer Voice", "M5Stack", 100);
+
+// ---- 配置持久化 ----
+Preferences prefs;
+
+// ---- 听写热键预设 (≤3 键、可在 Mac 手按绑定、无系统冲突) ----
+struct Hotkey {
+  const char* name;
+  uint8_t mods[2];
+  uint8_t nmod;
+  char    key;
+};
+static const Hotkey HK[] = {
+  {"Ctrl+Alt+\\", {KEY_LEFT_CTRL, KEY_LEFT_ALT}, 2, '\\'},  // 默认 (Control+Option+Backslash)
+  {"Ctrl+Alt+.",  {KEY_LEFT_CTRL, KEY_LEFT_ALT}, 2, '.'},   // (Control+Option+Period)
+  {"Alt+Cmd+\\",  {KEY_LEFT_ALT,  KEY_LEFT_GUI}, 2, '\\'},  // (Option+Command+Backslash)
+};
+static const uint8_t HK_COUNT = sizeof(HK) / sizeof(HK[0]);
+uint8_t hotkeyIndex = 0;
+
+// ---- 方向键字符映射 (实机用串口 `keymap` 确认；默认社区常见映射) ----
+static char ARROW_UP    = ';';
+static char ARROW_DOWN  = '.';
+static char ARROW_LEFT  = ',';
+static char ARROW_RIGHT = '/';
+
+// ---- 运行态 ----
+bool recState   = false;   // 听写假设状态 (单向发键无法读真值)
+bool selectMode = false;   // 选择模式
+bool bleConn    = false;
+int  batLevel   = -1;
+bool dirty      = true;    // UI 需重绘
+
+// ---- UI sprite (8bit 省内存, 单缓冲) ----
+M5Canvas cv(&M5Cardputer.Display);
+
+// ---- 串口 ----
+String  cmdBuf;
+uint32_t keymapUntil = 0;
+
+// ---- 边沿检测状态 ----
+bool prevCtrlAlone = false, prevAltAlone = false, prevOptAlone = false;
+bool prevFnBacktick = false;
+char prevFnArrow = 0;
+uint8_t lastFwKey = 0; int lastFwMod = 0; uint32_t fwNextRepeat = 0;
+uint32_t lastDictMs = 0, lastSelMs = 0, lastOptMs = 0;   // 去抖冷却
+
+// ===================== 工具 =====================
+
+static void sendHotkey() {
+  if (!bleKeyboard.isConnected()) return;
+  const Hotkey& h = HK[hotkeyIndex];
+  for (uint8_t i = 0; i < h.nmod; i++) bleKeyboard.press(h.mods[i]);
+  bleKeyboard.press(h.key);
+  delay(8);
+  bleKeyboard.releaseAll();
+}
+
+static void sendKey(int mod, uint8_t key) {
+  if (!bleKeyboard.isConnected()) return;
+  if (mod) bleKeyboard.press((uint8_t)mod);
+  bleKeyboard.press(key);
+  delay(5);
+  bleKeyboard.releaseAll();
+}
+
+static void sendShiftTab() {
+  sendKey(KEY_LEFT_SHIFT, KEY_TAB);
+}
+
+// 返回 bmorcelli Launcher (无 Launcher 时为安全空操作)
+static void returnToLauncher() {
+  auto l = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_TEST, nullptr);
+  if (!l) l = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_FACTORY, nullptr);
+  if (!l || l == esp_ota_get_running_partition()) return;
+  esp_ota_set_boot_partition(l);
+  delay(60);
+  esp_restart();
+}
+
+static void saveHotkey() {
+  prefs.putUChar("hk", hotkeyIndex);
+}
+
+// ===================== UI =====================
+
+static void drawUI() {
+  cv.fillSprite(TFT_BLACK);
+
+  // 顶栏: BLE 状态 + 电池
+  cv.setTextSize(1);
+  cv.setTextColor(bleConn ? TFT_GREEN : TFT_ORANGE, TFT_BLACK);
+  cv.setTextDatum(TL_DATUM);
+  cv.drawString(bleConn ? "BLE: Connected" : "BLE: Advertising...", 4, 4);
+  if (batLevel >= 0) {
+    char bat[8];
+    snprintf(bat, sizeof(bat), "%d%%", batLevel);
+    cv.setTextColor(TFT_WHITE, TFT_BLACK);
+    cv.setTextDatum(TR_DATUM);
+    cv.drawString(bat, 236, 4);
+  }
+  cv.drawFastHLine(0, 18, 240, 0x4208);
+
+  // 中部大字: 听写状态
+  cv.setTextDatum(MC_DATUM);
+  cv.setTextSize(4);
+  if (recState) {
+    cv.setTextColor(TFT_RED, TFT_BLACK);
+    cv.drawString("REC", 120, 58);
+  } else {
+    cv.setTextColor(0x7BEF, TFT_BLACK);
+    cv.drawString("IDLE", 120, 58);
+  }
+
+  // 选择模式徽标
+  if (selectMode) {
+    cv.setTextSize(2);
+    cv.setTextColor(TFT_YELLOW, TFT_BLACK);
+    cv.drawString("SELECT", 120, 95);
+  }
+
+  // 底栏: 按键速查 (mic 提示已含在此，不再单列 Mic key)
+  cv.setTextSize(1);
+  cv.setTextColor(0x8410, TFT_BLACK);
+  cv.setTextDatum(BL_DATUM);
+  cv.drawString("Ctrl=mic Alt=sel Opt=mode", 4, 132);
+
+  cv.pushSprite(0, 0);
+}
+
+// ===================== 串口控制台 =====================
+
+static void printStatus() {
+  Serial.printf("[status] BLE=%s rec=%s select=%s hotkey=%s(%d) batt=%d%%\n",
+                bleConn ? "connected" : "advertising",
+                recState ? "REC" : "IDLE",
+                selectMode ? "on" : "off",
+                HK[hotkeyIndex].name, hotkeyIndex, batLevel);
+}
+
+static void handleCommand(String line) {
+  line.trim();
+  if (line.length() == 0) return;
+
+  if (line == "status") {
+    printStatus();
+  } else if (line.startsWith("hotkey")) {
+    int idx = line.substring(6).toInt();
+    if (idx >= 0 && idx < HK_COUNT) {
+      hotkeyIndex = idx;
+      saveHotkey();
+      dirty = true;
+      Serial.printf("[hotkey] -> %s\n", HK[hotkeyIndex].name);
+    } else {
+      Serial.printf("[hotkey] usage: hotkey <0..%d>\n", HK_COUNT - 1);
+      for (uint8_t i = 0; i < HK_COUNT; i++) Serial.printf("  %d = %s\n", i, HK[i].name);
+    }
+  } else if (line == "send") {
+    sendHotkey();
+    recState = !recState;
+    dirty = true;
+    Serial.printf("[send] hotkey sent, assumed rec=%s\n", recState ? "REC" : "IDLE");
+  } else if (line == "keymap") {
+    keymapUntil = millis() + 10000;
+    Serial.println("[keymap] press keys on Cardputer for 10s; printing keysState...");
+  } else if (line == "reset") {
+    recState = false;
+    selectMode = false;
+    dirty = true;
+    Serial.println("[reset] state -> IDLE, select off");
+  } else {
+    Serial.println("[?] cmds: status | hotkey <n> | send | keymap | reset");
+  }
+}
+
+static void pollSerial() {
+  while (Serial.available()) {
+    char c = (char)Serial.read();
+    if (c == '\n' || c == '\r') {
+      if (cmdBuf.length()) { handleCommand(cmdBuf); cmdBuf = ""; }
+    } else if (cmdBuf.length() < 64) {
+      cmdBuf += c;
+    }
+  }
+}
+
+// ===================== 键盘逻辑 =====================
+
+// 判断 word 里是否含某字符
+static bool hasChar(const std::vector<char>& w, char target) {
+  for (char c : w) if (c == target) return true;
+  return false;
+}
+
+static void handleKeyboard() {
+  auto ks = M5Cardputer.Keyboard.keysState();
+
+  // keymap 调试: 打印当前按下的键
+  if (keymapUntil && millis() < keymapUntil) {
+    if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
+      Serial.print("[keymap] word=[");
+      for (char c : ks.word) Serial.printf("'%c'(%d) ", c, c);
+      Serial.printf("] ctrl=%d alt=%d opt=%d fn=%d shift=%d tab=%d enter=%d space=%d del=%d\n",
+                    ks.ctrl, ks.alt, ks.opt, ks.fn, ks.shift, ks.tab, ks.enter, ks.space, ks.del);
+    }
+  } else if (keymapUntil) {
+    keymapUntil = 0;
+    Serial.println("[keymap] done");
+  }
+
+  // --- 本地控制键：仅"单独按下该键(此刻无任何其他键)"才触发，避免误碰 ---
+  bool otherKey   = !ks.word.empty() || ks.tab || ks.enter || ks.space || ks.del;
+  bool ctrlAlone  = ks.ctrl && !ks.alt && !ks.opt && !ks.fn && !ks.shift && !otherKey;
+  bool altAlone   = ks.alt  && !ks.ctrl && !ks.opt && !ks.fn && !ks.shift && !otherKey;
+  bool optAlone   = ks.opt  && !ks.ctrl && !ks.alt && !ks.fn && !ks.shift && !otherKey;
+
+  if (ctrlAlone && !prevCtrlAlone && millis() - lastDictMs > 2000) { // Ctrl 单独点按 -> 听写 (2s 间隔防快按失步)
+    sendHotkey(); recState = !recState; lastDictMs = millis(); dirty = true;
+  }
+  if (altAlone && !prevAltAlone && millis() - lastSelMs > 250) {     // Alt 单独点按 -> 选择模式
+    selectMode = !selectMode; lastSelMs = millis(); dirty = true;
+  }
+  if (optAlone && !prevOptAlone && millis() - lastOptMs > 250) {     // Opt 单独点按 -> Shift+Tab
+    sendShiftTab(); lastOptMs = millis();
+  }
+
+  bool backtick = hasChar(ks.word, '`') || hasChar(ks.word, '~');
+
+  // Fn 层: 配置 / Launcher (不转发普通键)
+  if (ks.fn) {
+    // Fn + ` -> 返回 Launcher
+    bool fnBacktick = backtick;
+    if (fnBacktick && !prevFnBacktick) returnToLauncher();
+    prevFnBacktick = fnBacktick;
+
+    // Fn + 上/下 -> 切换听写热键预设
+    char fnArrow = 0;
+    if (hasChar(ks.word, ARROW_UP))   fnArrow = 'U';
+    else if (hasChar(ks.word, ARROW_DOWN)) fnArrow = 'D';
+    if (fnArrow && fnArrow != prevFnArrow) {
+      if (fnArrow == 'U') hotkeyIndex = (hotkeyIndex + HK_COUNT - 1) % HK_COUNT;
+      else                hotkeyIndex = (hotkeyIndex + 1) % HK_COUNT;
+      saveHotkey();
+      dirty = true;
+      Serial.printf("[hotkey] -> %s\n", HK[hotkeyIndex].name);
+    }
+    prevFnArrow = fnArrow;
+
+    // Fn 按下时不做普通转发，清空转发态
+    lastFwKey = 0; lastFwMod = 0;
+  } else {
+    prevFnBacktick = false;
+    prevFnArrow = 0;
+
+    // --- 转发键判定 ---
+    uint8_t curKey = 0; int curMod = 0; bool curIsArrow = false; bool curRepeat = false;
+    if (hasChar(ks.word, ARROW_UP))         { curKey = KEY_UP_ARROW;    curIsArrow = true; }
+    else if (hasChar(ks.word, ARROW_DOWN))  { curKey = KEY_DOWN_ARROW;  curIsArrow = true; }
+    else if (hasChar(ks.word, ARROW_LEFT))  { curKey = KEY_LEFT_ARROW;  curIsArrow = true; }
+    else if (hasChar(ks.word, ARROW_RIGHT)) { curKey = KEY_RIGHT_ARROW; curIsArrow = true; }
+    else if (backtick)                      { curKey = KEY_ESC; }
+    else if (ks.space)                      { curKey = ' '; }
+    else if (ks.enter)                      { curKey = KEY_RETURN; }
+    else if (ks.del)                        { curKey = KEY_BACKSPACE; curRepeat = true; }  // 退格：按住连删
+    else if (ks.tab)                        { curKey = KEY_TAB; }
+
+    if (curKey && curIsArrow && selectMode) curMod = KEY_LEFT_SHIFT;
+    curRepeat = curRepeat || curIsArrow;     // 方向键与退格支持长按重复
+
+    uint32_t now = millis();
+    if (curKey) {
+      bool isNew = (curKey != lastFwKey || curMod != lastFwMod);
+      if (isNew) {
+        sendKey(curMod, curKey);
+        lastFwKey = curKey; lastFwMod = curMod;
+        fwNextRepeat = now + 350;            // 初次按下后的重复延迟
+      } else if (curRepeat && now >= fwNextRepeat) {
+        sendKey(curMod, curKey);             // 方向键/退格长按重复
+        fwNextRepeat = now + 90;
+      }
+    } else {
+      lastFwKey = 0; lastFwMod = 0;
+    }
+  }
+
+  prevCtrlAlone = ctrlAlone;
+  prevAltAlone  = altAlone;
+  prevOptAlone  = optAlone;
+}
+
+// ===================== Arduino =====================
+
+void setup() {
+  auto cfg = M5.config();
+  M5Cardputer.begin(cfg, true);
+  M5Cardputer.Display.setRotation(1);
+
+  cv.setColorDepth(8);                 // 省内存 (240x135x1B ≈ 32KB)
+  cv.createSprite(240, 135);
+
+  prefs.begin("typeless", false);
+  hotkeyIndex = prefs.getUChar("hk", 0);
+  if (hotkeyIndex >= HK_COUNT) hotkeyIndex = 0;
+
+  Serial.begin(115200);
+  Serial.println("\n[boot] Cardputer Voice (BLE HID) -> Typeless / Claude Code");
+  Serial.printf("[boot] hotkey=%s  cmds: status|hotkey <n>|send|keymap|reset\n", HK[hotkeyIndex].name);
+
+  bleKeyboard.begin();
+  drawUI();
+}
+
+void loop() {
+  M5Cardputer.update();
+  pollSerial();
+  handleKeyboard();
+
+  // BLE 连接状态 / 电池 / 电量上报 (1s 节流)
+  static uint32_t tBatt = 0;
+  if (millis() - tBatt > 1000) {
+    tBatt = millis();
+    bool c = bleKeyboard.isConnected();
+    if (c != bleConn) { bleConn = c; dirty = true; }
+    int b = M5.Power.getBatteryLevel();
+    if (b != batLevel) { batLevel = b; dirty = true; }
+    if (bleConn && batLevel >= 0) bleKeyboard.setBatteryLevel((uint8_t)batLevel);
+  }
+
+  if (dirty) { drawUI(); dirty = false; }
+
+  delay(8);
+}
