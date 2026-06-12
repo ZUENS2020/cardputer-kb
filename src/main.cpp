@@ -80,7 +80,9 @@ bool recState   = false;   // 听写假设状态 (单向发键无法读真值)
 bool recState2  = false;   // Tab = Typeless 另一种输入的假设状态
 bool selectMode = false;   // 选择模式
 bool bleConn    = false;
-int  batLevel   = -1;
+int  batLevel   = -1;      // 平滑后用于显示/上报的电量 %
+float battEma   = -1.0f;   // 电量 EMA (LiPo 电压随负载抖，需平滑)
+bool charging   = false;
 bool dirty      = true;    // UI 需重绘
 
 // ---- UI sprite (8bit 省内存, 单缓冲) ----
@@ -143,6 +145,8 @@ static void saveHotkey() {
   prefs.putUChar("hk", hotkeyIndex);
 }
 
+static void updateBattery();   // 见 loop 前定义
+
 // ===================== UI =====================
 
 static void drawUI() {
@@ -153,10 +157,14 @@ static void drawUI() {
   cv.setTextColor(bleConn ? TFT_GREEN : TFT_ORANGE, TFT_BLACK);
   cv.setTextDatum(TL_DATUM);
   cv.drawString(bleConn ? "BLE: Connected" : "BLE: Advertising...", 4, 4);
-  if (batLevel >= 0) {
-    char bat[8];
-    snprintf(bat, sizeof(bat), "%d%%", batLevel);
-    cv.setTextColor(TFT_WHITE, TFT_BLACK);
+  {
+    char bat[12];
+    if (batLevel < 0) snprintf(bat, sizeof(bat), "--%%");
+    else              snprintf(bat, sizeof(bat), "%s%d%%", charging ? "+" : "", batLevel);
+    uint16_t col = charging ? TFT_GREEN
+                 : (batLevel >= 0 && batLevel <= 15) ? TFT_RED
+                 : TFT_WHITE;
+    cv.setTextColor(col, TFT_BLACK);
     cv.setTextDatum(TR_DATUM);
     cv.drawString(bat, 236, 4);
   }
@@ -424,7 +432,23 @@ void setup() {
                 platform ? "Windows" : "Mac", activeHK()[hotkeyIndex].name);
 
   bleKeyboard.begin();
+  updateBattery();        // 开机先读一次，避免首屏显示 --
   drawUI();
+}
+
+// ADV 用 pmic_m5pm1：getBatteryLevel() 是电压线性映射，负载下会抖。
+// 用 EMA 平滑 + 忽略错误读数 + 跟踪充电状态，再上报给 BLE 电量服务。
+static void updateBattery() {
+  int raw = M5.Power.getBatteryLevel();
+  if (raw >= 0 && raw <= 100) {
+    if (battEma < 0) battEma = raw;               // 首次直接取值
+    else             battEma = battEma * 0.8f + raw * 0.2f;
+    int lv = (int)lroundf(battEma);
+    if (lv != batLevel) { batLevel = lv; dirty = true; }
+  }
+  bool ch = ((int)M5.Power.isCharging() == 1);    // 1 = is_charging
+  if (ch != charging) { charging = ch; dirty = true; }
+  if (bleConn && batLevel >= 0) bleKeyboard.setBatteryLevel((uint8_t)batLevel);
 }
 
 void loop() {
@@ -432,15 +456,16 @@ void loop() {
   pollSerial();
   handleKeyboard();
 
-  // BLE 连接状态 / 电池 / 电量上报 (1s 节流)
-  static uint32_t tBatt = 0;
-  if (millis() - tBatt > 1000) {
-    tBatt = millis();
+  // BLE 连接状态 (1s) + 电量平滑/上报 (2s)
+  static uint32_t tConn = 0, tBatt = 0;
+  if (millis() - tConn > 1000) {
+    tConn = millis();
     bool c = bleKeyboard.isConnected();
     if (c != bleConn) { bleConn = c; dirty = true; }
-    int b = M5.Power.getBatteryLevel();
-    if (b != batLevel) { batLevel = b; dirty = true; }
-    if (bleConn && batLevel >= 0) bleKeyboard.setBatteryLevel((uint8_t)batLevel);
+  }
+  if (millis() - tBatt > 2000) {
+    tBatt = millis();
+    updateBattery();
   }
 
   if (dirty) { drawUI(); dirty = false; }
