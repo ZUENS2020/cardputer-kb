@@ -70,29 +70,34 @@ String  cmdBuf;
 uint32_t keymapUntil = 0;
 
 // ---- 边沿检测状态 ----
-bool prevCtrlAlone = false, prevAltAlone = false, prevOptAlone = false;
+bool prevCtrl = false, prevAlt = false, prevOpt = false;
 bool prevFnBacktick = false;
+bool prevFnEnter = false;
 char prevFnArrow = 0;
 uint8_t lastFwKey = 0; int lastFwMod = 0; uint32_t fwNextRepeat = 0;
 uint32_t lastDictMs = 0, lastSelMs = 0, lastOptMs = 0;   // 去抖冷却
 
 // ===================== 工具 =====================
 
+// BLE HID 组合键要稳：每个按键报文之间留间隔，整体按住一会儿再松开，
+// 否则报文挨太近会被 BLE 丢掉或被主机识别不全 (Typeless 偶尔收不到)。
 static void sendHotkey() {
   if (!bleKeyboard.isConnected()) return;
   const Hotkey& h = HK[hotkeyIndex];
-  for (uint8_t i = 0; i < h.nmod; i++) bleKeyboard.press(h.mods[i]);
+  for (uint8_t i = 0; i < h.nmod; i++) { bleKeyboard.press(h.mods[i]); delay(15); }
   bleKeyboard.press(h.key);
-  delay(8);
+  delay(45);                  // 按住整组，确保主机稳定识别
   bleKeyboard.releaseAll();
+  delay(15);                  // 给松开报文留出时间
 }
 
 static void sendKey(int mod, uint8_t key) {
   if (!bleKeyboard.isConnected()) return;
-  if (mod) bleKeyboard.press((uint8_t)mod);
+  if (mod) { bleKeyboard.press((uint8_t)mod); delay(15); }
   bleKeyboard.press(key);
-  delay(5);
+  delay(25);
   bleKeyboard.releaseAll();
+  delay(10);
 }
 
 static void sendShiftTab() {
@@ -154,7 +159,7 @@ static void drawUI() {
   cv.setTextSize(1);
   cv.setTextColor(0x8410, TFT_BLACK);
   cv.setTextDatum(BL_DATUM);
-  cv.drawString("Ctrl=mic Alt=sel Opt=mode", 4, 132);
+  cv.drawString("Ctrl=mic Opt=mode Alt=sel", 4, 132);
 
   cv.pushSprite(0, 0);
 }
@@ -239,20 +244,27 @@ static void handleKeyboard() {
     Serial.println("[keymap] done");
   }
 
-  // --- 本地控制键：仅"单独按下该键(此刻无任何其他键)"才触发，避免误碰 ---
-  bool otherKey   = !ks.word.empty() || ks.tab || ks.enter || ks.space || ks.del;
-  bool ctrlAlone  = ks.ctrl && !ks.alt && !ks.opt && !ks.fn && !ks.shift && !otherKey;
-  bool altAlone   = ks.alt  && !ks.ctrl && !ks.opt && !ks.fn && !ks.shift && !otherKey;
-  bool optAlone   = ks.opt  && !ks.ctrl && !ks.alt && !ks.fn && !ks.shift && !otherKey;
+  // --- 本地控制键：检测该键"按下沿"(每次物理按下必触发一次)，
+  //     仅在按下那一刻没有其他键同时按着时才生效，避免组合误碰。 ---
+  bool otherKey = !ks.word.empty() || ks.tab || ks.enter || ks.space || ks.del;
 
-  if (ctrlAlone && !prevCtrlAlone && millis() - lastDictMs > 2000) { // Ctrl 单独点按 -> 听写 (2s 间隔防快按失步)
-    sendHotkey(); recState = !recState; lastDictMs = millis(); dirty = true;
+  // Ctrl 按下 -> 听写 (2s 间隔防快按失步)
+  if (ks.ctrl && !prevCtrl) {
+    if (!ks.alt && !ks.opt && !ks.fn && !ks.shift && !otherKey && millis() - lastDictMs > 2000) {
+      sendHotkey(); recState = !recState; lastDictMs = millis(); dirty = true;
+    }
   }
-  if (altAlone && !prevAltAlone && millis() - lastSelMs > 250) {     // Alt 单独点按 -> 选择模式
-    selectMode = !selectMode; lastSelMs = millis(); dirty = true;
+  // Alt 按下 -> 选择模式
+  if (ks.alt && !prevAlt) {
+    if (!ks.ctrl && !ks.opt && !ks.fn && !ks.shift && !otherKey && millis() - lastSelMs > 250) {
+      selectMode = !selectMode; lastSelMs = millis(); dirty = true;
+    }
   }
-  if (optAlone && !prevOptAlone && millis() - lastOptMs > 250) {     // Opt 单独点按 -> Shift+Tab
-    sendShiftTab(); lastOptMs = millis();
+  // Opt 按下 -> Shift+Tab
+  if (ks.opt && !prevOpt) {
+    if (!ks.ctrl && !ks.alt && !ks.fn && !ks.shift && !otherKey && millis() - lastOptMs > 250) {
+      sendShiftTab(); lastOptMs = millis();
+    }
   }
 
   bool backtick = hasChar(ks.word, '`') || hasChar(ks.word, '~');
@@ -263,6 +275,10 @@ static void handleKeyboard() {
     bool fnBacktick = backtick;
     if (fnBacktick && !prevFnBacktick) returnToLauncher();
     prevFnBacktick = fnBacktick;
+
+    // Fn + Enter -> Ctrl+Enter
+    if (ks.enter && !prevFnEnter) sendKey(KEY_LEFT_CTRL, KEY_RETURN);
+    prevFnEnter = ks.enter;
 
     // Fn + 上/下 -> 切换听写热键预设
     char fnArrow = 0;
@@ -281,6 +297,7 @@ static void handleKeyboard() {
     lastFwKey = 0; lastFwMod = 0;
   } else {
     prevFnBacktick = false;
+    prevFnEnter = false;
     prevFnArrow = 0;
 
     // --- 转发键判定 ---
@@ -314,9 +331,9 @@ static void handleKeyboard() {
     }
   }
 
-  prevCtrlAlone = ctrlAlone;
-  prevAltAlone  = altAlone;
-  prevOptAlone  = optAlone;
+  prevCtrl = ks.ctrl;
+  prevAlt  = ks.alt;
+  prevOpt  = ks.opt;
 }
 
 // ===================== Arduino =====================
