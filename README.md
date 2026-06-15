@@ -23,7 +23,7 @@
 | **`** (Esc 位) | 转发 `Esc`；若在 REC 中则同步退出本地 REC 指示 |
 | **Space / Del** | 转发 空格 / Backspace（长按连删） |
 | **Enter 键** | 发 `Ctrl+Enter` |
-| **A 键** | 发 `Ctrl+A` |
+| **A 键** | 全选（Mac=`⌘A`，Win=`Ctrl+A`） |
 | **Fn（单独点按）** | 发 `Enter` |
 | **Aa + P**（Aa=Shift） | 切换平台 **Mac ↔ Windows**（存 NVS） |
 | **Aa + R** | **重新配对**：清除所有 bond + 断开 + 重新广播 |

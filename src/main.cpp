@@ -8,7 +8,7 @@
 //   Esc(` 键)   -> 转发 Esc (REC 状态下还会同步退出本地 REC 指示)
 //   Space/Del   -> 转发 Space/Backspace
 //   Enter 键    -> 发 Ctrl+Enter
-//   A 键        -> 发 Ctrl+A
+//   A 键        -> 全选 (Mac: Cmd+A, Win: Ctrl+A)
 //   Fn 单独点按 -> 发 Enter
 //   Tab         -> Typeless 另一种输入 (和 Ctrl 同样处理: 单独按下/2s 间隔/带状态)
 //                  平台专属组合 (Mac: Ctrl+Alt+'，Win: RightAlt+Space)
@@ -418,7 +418,9 @@ static void handleKeyboard() {
     else if (ks.space)                      { curKey = ' '; }
     else if (ks.enter)                      { curKey = KEY_RETURN; curMod = KEY_LEFT_CTRL; }  // Enter 键 = Ctrl+Enter
     else if (ks.del)                        { curKey = KEY_BACKSPACE; curRepeat = true; }     // 退格：按住连删
-    else if (hasChar(ks.word, 'a') || hasChar(ks.word, 'A')) { curKey = 'a'; curMod = KEY_LEFT_CTRL; }  // A 键 = Ctrl+A
+    else if (hasChar(ks.word, 'a') || hasChar(ks.word, 'A')) {                 // A 键 = 全选 (Mac:Cmd+A, Win:Ctrl+A)
+      curKey = 'a'; curMod = platform ? KEY_LEFT_CTRL : KEY_LEFT_GUI;
+    }
 
     if (curKey && curIsArrow && selectMode) curMod = KEY_LEFT_SHIFT;
     curRepeat = curRepeat || curIsArrow;     // 方向键与退格支持长按重复
