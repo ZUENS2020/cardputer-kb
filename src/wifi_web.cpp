@@ -25,7 +25,7 @@ static bool otaOK = false;
 static bool staTrying = false;
 static char apSsidShown[24] = "Cardputer-KB";
 static const char* AP_SSID = "Cardputer-KB";
-static const char* AP_PASS = "typeless123";
+static const char* AP_PASS = "cardputerkb";
 
 static void ensureAp();
 static void startSta(const String& ssid, const String& pass);
