@@ -54,6 +54,7 @@ Always use `-e cardputer-adv`.
 - WiFi is **2.4 GHz only**
 - Do not disable WiFi modem sleep while BLE is active
 - Source: https://github.com/ZUENS2020/cardputer-kb
+- License: **MIT**
 
 ### Share on M5 community
 
@@ -112,3 +113,4 @@ pio run -e cardputer-adv -t upload
 - 网页不再提供 WiFi 标签；连网只走本机键盘或串口
 - BLE 与 WiFi 共存时勿关闭 WiFi modem sleep
 - 仓库：https://github.com/ZUENS2020/cardputer-kb
+- 许可：**MIT**
