@@ -134,7 +134,7 @@ static const char PAGE_HTML[] PROGMEM = R"HTML(<!DOCTYPE html>
 body{margin:0;min-height:100dvh;background:var(--bg-0);color:var(--fg-0);font-family:var(--font-body);font-size:16px;line-height:1.5;-webkit-tap-highlight-color:transparent}
 button,.k,.ck{cursor:pointer}
 button:focus-visible,.k:focus-visible,input:focus-visible{outline:none;box-shadow:var(--shadow-focus)}
-.wrap{max-width:920px;margin:0 auto;padding:var(--sp-4) var(--sp-4) 100px}
+.wrap{max-width:1100px;margin:0 auto;padding:var(--sp-4) var(--sp-4) 100px}
 .speed-line{height:1px;width:100%;background:var(--accent);margin:0 0 var(--sp-4)}
 header{display:flex;flex-wrap:wrap;gap:var(--sp-3);justify-content:space-between;align-items:flex-start;margin-bottom:var(--sp-4)}
 h1{margin:0;font-family:var(--font-headline);font-size:20px;font-weight:800;letter-spacing:-.02em}
@@ -144,8 +144,10 @@ h1{margin:0;font-family:var(--font-headline);font-size:20px;font-weight:800;lett
 .chip b{color:var(--fg-0);font-weight:700;text-transform:none;letter-spacing:0;font-family:var(--font-mono);font-size:12px}
 .dot{width:6px;height:6px;border-radius:50%;background:var(--fg-2)}.dot.on{background:var(--accent);box-shadow:0 0 0 3px rgba(0,105,65,.25)}.dot.warn{background:var(--zinc-500)}
 .tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--sp-2);margin-bottom:var(--sp-4)}
+.tabs.no-wifi{grid-template-columns:repeat(2,1fr)}
 .tabs button{min-height:44px;border-radius:var(--r-1);border:1px solid var(--line);background:var(--bg-1);color:var(--fg-1);font-family:var(--font-label);font-weight:700;font-size:12px;letter-spacing:.06em;text-transform:uppercase}
 .tabs button.on{background:rgba(0,105,65,.16);border-color:var(--accent);color:var(--fg-0)}
+.tabs button.hidden{display:none}
 .panel{display:none}.panel.on{display:block}
 .card{background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-2);padding:var(--sp-4);margin:0 0 var(--sp-3)}
 .card h2{margin:0 0 var(--sp-3);font-family:var(--font-headline);font-size:18px;font-weight:700}
@@ -186,6 +188,14 @@ h1{margin:0;font-family:var(--font-headline);font-size:20px;font-weight:800;lett
 .kb-sec{margin:0 0 10px}.kb-sec .hint{margin:0 0 6px;font-family:var(--font-label);font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-2)}
 .kb-sec .kr{display:flex;gap:4px;width:100%;margin:0 0 5px}.kb-sec .k{flex:1 1 0;min-width:0;height:40px;font-size:10px}
 .kb-sec.media .k{background:#152033;border-color:#243044}.kb-sec.media .k.on{background:var(--accent);border-color:var(--accent-dim)}
+.fullkb{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;min-width:980px;align-items:start}
+.fullkb-main,.fullkb-nav,.fullkb-num{display:flex;flex-direction:column;gap:4px}
+.fullkb-nav{width:132px}.fullkb-num{width:168px}
+.fullkb .kr{gap:3px}.fullkb .k{height:36px;font-size:10px;padding:0 2px}
+.fullkb .gap{flex:0.55 1 0;min-width:8px;pointer-events:none;border:none;background:transparent;height:36px}
+.fullkb .nav-gap{height:36px;margin:0 0 4px}
+.fullkb-num .k{flex:1 1 0}.fullkb-num .kr{display:flex}
+.k.u1{flex:1 1 0}.k.u3{flex:3 1 0}.k.u4{flex:4 1 0}.k.u5{flex:5 1 0}.k.u6{flex:6 1 0}.k.tall{height:76px}
 .kr.indent-05{padding-left:calc((100% - 13*4px)/15 * .5)}
 .kr.indent-075{padding-left:calc((100% - 12*4px)/14 * .75)}
 .ckb{display:flex;flex-direction:column;gap:4px;overflow-x:auto}
@@ -219,9 +229,9 @@ code{font-family:var(--font-mono);font-size:13px;color:var(--green-soft)}
     <div class="chip"><span class="dot" id="bleDot"></span>BLE <b id="ble">…</b></div>
   </div>
 </header>
-<nav class="tabs">
-  <button type="button" data-tab="wifi" class="on">WiFi</button>
-  <button type="button" data-tab="keys">键盘</button>
+<nav class="tabs" id="tabNav">
+  <button type="button" data-tab="wifi" id="tabWifiBtn" class="on">WiFi</button>
+  <button type="button" data-tab="keys" id="tabKeysBtn">键盘</button>
   <button type="button" data-tab="ota">OTA</button>
 </nav>
 <section class="panel on" id="tab-wifi">
@@ -246,7 +256,7 @@ code{font-family:var(--font-mono);font-size:13px;color:var(--green-soft)}
   </div>
   <div class="card">
     <h2>1. 选择电脑端要发送的键</h2>
-    <p class="hint" style="margin-top:0">无控制键：只能选 <b>1</b> 个主键。有控制键：主键个数不限（也可只发控制键）。<br>笔记本上的 <b>Fn</b> 不会出现在 HID 里，映射不出去；请直接选下方的 <b>F1–F12</b> 或 <b>音量/播放</b> 等媒体键（这才是 Fn 层真正发给系统的东西）。</p>
+    <p class="hint" style="margin-top:0">无控制键：只能选 <b>1</b> 个主键。有控制键：主键个数不限（也可只发控制键）。<br>Windows 编辑器用<strong>全尺寸键盘</strong>（含导航区与小键盘）。笔记本 <b>Fn</b> 不会出现在 HID 里，请直接选 F 键 / 媒体键。</p>
     <div class="seg" id="passSeg" style="margin-bottom:10px">
       <button type="button" data-pass="0">仅映射键</button>
       <button type="button" data-pass="1">全键透传</button>
@@ -320,16 +330,19 @@ let platform=0, remapsMac=[], remapsWin=[], selectedWifi='', passThrough=false;
 let pc={mods:[],keys:[]}, adv={mods:[],keys:[]};
 const curRemaps=()=>platform?remapsWin:remapsMac;
 const mapRow=r=>({adv:{mods:r.adv?.mods||[],keys:r.adv?.keys||[]},pc:{mods:r.pc?.mods||[],keys:r.pc?.keys||[]}});
-const PC_MODS=new Set(['ctrl','shift','alt','gui','ralt']);
+const PC_MODS=new Set(['ctrl','shift','alt','gui','ralt','rctrl','rshift','rgui']);
 const ADV_MODS=new Set(['ctrl','opt','alt','fn','shift']);
-const MOD_ORDER_PC=['ctrl','alt','gui','shift','ralt'];
+const MOD_ORDER_PC=['ctrl','alt','gui','shift','ralt','rctrl','rshift','rgui'];
 const MOD_ORDER_ADV=['fn','ctrl','opt','alt','shift'];
-const LAB_PC={ctrl:{0:'⌃',1:'Ctrl'},shift:{0:'⇧',1:'Shift'},alt:{0:'⌥',1:'Alt'},gui:{0:'⌘',1:'Win'},ralt:{0:'⌥R',1:'AltGr'}};
+const LAB_PC={ctrl:{0:'⌃',1:'Ctrl'},shift:{0:'⇧',1:'Shift'},alt:{0:'⌥',1:'Alt'},gui:{0:'⌘',1:'Win'},ralt:{0:'⌥R',1:'AltGr'},rctrl:{0:'⌃R',1:'RCtrl'},rshift:{0:'⇧R',1:'RShift'},rgui:{0:'⌘R',1:'RWin'}};
 const LAB_ADV={fn:'fn',ctrl:'ctrl',opt:'opt',alt:'alt',shift:'Aa'};
-const KEY_LAB={space:'Space',enter:'Enter',tab:'Tab',esc:'Esc',bksp:'⌫',del:'del',up:'↑',down:'↓',left:'←',right:'→',
+const KEY_LAB={space:'Space',enter:'Enter',tab:'Tab',esc:'Esc',bksp:'⌫',del:'Del',up:'↑',down:'↓',left:'←',right:'→',
   f1:'F1',f2:'F2',f3:'F3',f4:'F4',f5:'F5',f6:'F6',f7:'F7',f8:'F8',f9:'F9',f10:'F10',f11:'F11',f12:'F12',
+  caps:'Caps',ins:'Ins',home:'Home',end:'End',pgup:'PgUp',pgdn:'PgDn',prtsc:'PrtSc',
+  num0:'0',num1:'1',num2:'2',num3:'3',num4:'4',num5:'5',num6:'6',num7:'7',num8:'8',num9:'9',
+  num_slash:'/',num_asterisk:'*',num_minus:'-',num_plus:'+',num_enter:'Enter',num_period:'.',
   vol_up:'Vol+',vol_down:'Vol-',mute:'Mute',play:'Play',next:'Next',prev:'Prev',stop:'Stop',
-  www_home:'Home',calc:'Calc',search:'Search',back:'Back',email:'Mail'};
+  www_home:'Web',calc:'Calc',search:'Search',back:'Back',email:'Mail'};
 const PC_FKEYS=['f1','f2','f3','f4','f5','f6','f7','f8','f9','f10','f11','f12'];
 const PC_MEDIA=[
   {k:'vol_down',l:'Vol-'},{k:'vol_up',l:'Vol+'},{k:'mute',l:'Mute'},
@@ -396,9 +409,30 @@ const ADV=[
 ];
 
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
+  if(b.classList.contains('hidden'))return;
   document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));
   document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('on',p.id==='tab-'+b.dataset.tab));
 });
+function showTab(name){
+  const b=document.querySelector(`.tabs button[data-tab="${name}"]`);
+  if(!b||b.classList.contains('hidden'))return;
+  b.click();
+}
+function syncWifiTab(sta){
+  const btn=$('tabWifiBtn'), nav=$('tabNav'), panel=$('tab-wifi');
+  if(!btn||!nav||!panel)return;
+  const hide=!!sta;
+  btn.classList.toggle('hidden',hide);
+  nav.classList.toggle('no-wifi',hide);
+  panel.style.display=hide?'none':'';
+  if(hide){
+    panel.classList.remove('on');
+    if(btn.classList.contains('on')||panel.classList.contains('on'))showTab('keys');
+    else if(!document.querySelector('.tabs button.on:not(.hidden)'))showTab('keys');
+  }else{
+    panel.style.display='';
+  }
+}
 function renderPlat(){document.querySelectorAll('#platSeg button').forEach(b=>b.classList.toggle('on',Number(b.dataset.p)===platform))}
 document.querySelectorAll('#platSeg button').forEach(b=>b.onclick=()=>{platform=Number(b.dataset.p);renderPlat();renderPc();renderTable();toast(platform?'正在编辑 Windows 映射':'正在编辑 Mac 映射')});
 function renderPass(){document.querySelectorAll('#passSeg button').forEach(b=>b.classList.toggle('on',Number(b.dataset.pass)===(passThrough?1:0)))}
@@ -517,7 +551,9 @@ function applyStatus(d,keepPlat){
   if(!keepPlat)platform=d.platform|0;
   renderPlat();passThrough=!!d.passthrough;renderPass();
   $('ip').textContent=d.ip||'—';$('ble').textContent=d.ble?'已连接':'未连接';
-  $('wifiDot').className='dot'+(d.ap?' warn':(d.ip&&d.ip!=='0.0.0.0'?' on':''));$('bleDot').className='dot'+(d.ble?' on':'');
+  const sta=!!d.sta;
+  $('wifiDot').className='dot'+(sta?' on':(d.ap?' warn':''));$('bleDot').className='dot'+(d.ble?' on':'');
+  syncWifiTab(sta);
   if(d.wifi_name){selectedWifi=d.wifi_name;showWifiPick()}
   remapsMac=(d.remaps_mac||[]).map(mapRow);
   remapsWin=(d.remaps_win||[]).map(mapRow);
@@ -588,6 +624,7 @@ static void handleStatus() {
   String json = "{";
   json += "\"ip\":\"" + jsonEscape(String(ipStr)) + "\",";
   json += "\"ap\":" + String(apMode ? "true" : "false") + ",";
+  json += "\"sta\":" + String(WiFi.status() == WL_CONNECTED ? "true" : "false") + ",";
   json += "\"ble\":" + String(bleConn ? "true" : "false") + ",";
   json += "\"platform\":" + String(platform) + ",";
   json += "\"wifi_name\":\"" + jsonEscape(prefs.getString("wifi_ssid", "")) + "\",";
