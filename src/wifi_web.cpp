@@ -668,21 +668,25 @@ static void handleScan() {
       server.send(200, "application/json", "{\"status\":\"scanning\"}");
       return;
     }
-    // 需要 STA 射频扫网：切 AP_STA，但保持开放 AP beacon
-    wifi_mode_t mode = WiFi.getMode();
-    if (mode == WIFI_AP) {
+    // 配网期已是 AP_STA，STA 口可直接扫；勿再切纯 AP
+    if (WiFi.getMode() != WIFI_AP_STA && WiFi.getMode() != WIFI_STA) {
       WiFi.mode(WIFI_AP_STA);
-      delay(80);
+      delay(100);
       keepApBeacon();
-      delay(40);
-    } else if (mode == WIFI_STA) {
-      WiFi.mode(WIFI_AP_STA);
-      delay(40);
-      if (apMode) keepApBeacon();
+      delay(80);
     }
 
+    // 清掉残留 STA 关联，避免 scan 启动失败
+    esp_wifi_disconnect();
+    delay(50);
     WiFi.scanDelete();
+    delay(30);
+
     int r = WiFi.scanNetworks(/*async=*/true, /*hidden=*/false);
+    if (r == WIFI_SCAN_FAILED) {
+      delay(200);
+      r = WiFi.scanNetworks(true, false);
+    }
     if (r == WIFI_SCAN_FAILED) {
       scanState = 3;
       scanErr = "start fail";
@@ -693,7 +697,7 @@ static void handleScan() {
     scanState = 1;
     scanStartedAt = millis();
     scanErr = "";
-    Serial.println("[wifi] scan async start");
+    Serial.printf("[wifi] scan async start (r=%d mode=%d)\n", r, (int)WiFi.getMode());
     server.send(200, "application/json", "{\"status\":\"scanning\"}");
     return;
   }
@@ -825,13 +829,14 @@ static void handleOtaUpload() {
 }
 
 static void ensureAp() {
-  // 纯 AP + 开放认证 + 仅 11b/g：对 Windows 最稳（避开 WPA2 SoftAP 握手坑）
+  // 配网 = 开放 SoftAP + AP_STA（STA 口用来扫网）。
+  // 纯 AP 无法 scan；Windows 怕的是 WPA2 SoftAP，不是 AP_STA 本身。
   WiFi.softAPdisconnect(true);
   delay(20);
   WiFi.disconnect(false);
   delay(20);
-  WiFi.mode(WIFI_AP);
-  delay(50);
+  WiFi.mode(WIFI_AP_STA);
+  delay(60);
 
   wifi_country_t country = {};
   strncpy(country.cc, "CN", sizeof(country.cc));
@@ -841,12 +846,12 @@ static void ensureAp() {
   country.policy = WIFI_COUNTRY_POLICY_MANUAL;
   esp_wifi_set_country(&country);
   esp_wifi_set_protocol(WIFI_IF_AP, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G);
+  esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N);
 
   IPAddress ip(192, 168, 4, 1);
   IPAddress gw(192, 168, 4, 1);
   IPAddress mask(255, 255, 255, 0);
   WiFi.softAPConfig(ip, gw, mask);
-  // nullptr = 开放网络（无密码）
   bool ok = WiFi.softAP(AP_SSID, nullptr, 1, 0, 4);
 
   wifi_config_t cfg{};
@@ -864,13 +869,13 @@ static void ensureAp() {
   snprintf(apSsidShown, sizeof(apSsidShown), "%s", AP_SSID);
   snprintf(ipStr, sizeof(ipStr), "%s", WiFi.softAPIP().toString().c_str());
   dirty = true;
-  Serial.printf("[wifi] softAP %s ssid=%s OPEN ch=1 11bg ip=%s mode=%d\n",
+  Serial.printf("[wifi] softAP %s ssid=%s OPEN AP_STA ch=1 ip=%s mode=%d\n",
                 ok ? "ok" : "FAIL", AP_SSID,
                 WiFi.softAPIP().toString().c_str(), (int)WiFi.getMode());
 }
 
 static void startSta(const String& ssid, const String& pass) {
-  // 连家里网时关掉 AP，保持纯 STA；失败后再回纯 AP
+  // 连家里网时关掉 AP，保持纯 STA；失败后再回配网 AP_STA
   WiFi.softAPdisconnect(true);
   apMode = false;
   WiFi.disconnect(true, false);
@@ -902,12 +907,10 @@ void wifiWebBegin() {
   WiFi.disconnect(true, true);
   delay(80);
 
-  // 默认纯 AP，方便 Win/手机配网；家里网只在网页保存 WiFi 后才连
-  WiFi.mode(WIFI_AP);
-  delay(50);
+  // 默认开放配网热点（AP_STA，可扫网）；家里网只在网页/串口保存后才连
   ensureAp();
   staTrying = false;
-  Serial.printf("[wifi] default pure OPEN AP %s\n", AP_SSID);
+  Serial.printf("[wifi] default OPEN AP_STA %s\n", AP_SSID);
 
   server.on("/", handleRoot);
   server.on("/api/status", handleStatus);
@@ -940,10 +943,10 @@ void wifiWebLoop() {
     WiFi.disconnect(true, false);
     delay(50);
     ensureAp();
-    Serial.println("[wifi] STA fail -> pure AP");
+    Serial.println("[wifi] STA fail -> OPEN AP_STA");
   } else if (!staTrying && !apMode) {
     ensureAp();
-    Serial.println("[wifi] offline -> pure AP");
+    Serial.println("[wifi] offline -> OPEN AP_STA");
   }
 }
 
