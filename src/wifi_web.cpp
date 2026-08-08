@@ -9,6 +9,7 @@
 #include <Update.h>
 #include <WebServer.h>
 #include <WiFi.h>
+#include <esp_wifi.h>
 
 extern Preferences prefs;
 extern uint8_t platform;
@@ -27,7 +28,7 @@ static const char* AP_SSID = "Cardputer-KB";
 static const char* AP_PASS = "typeless123";
 
 static void ensureAp();
-
+static void startSta(const String& ssid, const String& pass);
 
 static String jsonEscape(const String& s) {
   String o;
@@ -576,7 +577,15 @@ static void handleStatus() {
 }
 
 static void handleScan() {
-  if (WiFi.getMode() == WIFI_STA) WiFi.mode(WIFI_AP_STA);
+  // 扫描需要 STA 射频；扫完立刻回到纯 AP，避免 Windows 卡在 AP+STA
+  const bool backToAp = apMode && WiFi.status() != WL_CONNECTED;
+  if (WiFi.getMode() != WIFI_AP_STA && WiFi.getMode() != WIFI_STA) {
+    WiFi.mode(WIFI_AP_STA);
+    delay(40);
+  } else if (WiFi.getMode() == WIFI_STA) {
+    WiFi.mode(WIFI_AP_STA);
+    delay(20);
+  }
   int n = WiFi.scanNetworks(false, false);
   String json = "[";
   bool first = true;
@@ -589,6 +598,11 @@ static void handleScan() {
   }
   json += "]";
   WiFi.scanDelete();
+  if (backToAp && WiFi.status() != WL_CONNECTED) {
+    WiFi.mode(WIFI_AP);
+    delay(30);
+    ensureAp();
+  }
   server.send(200, "application/json", json);
 }
 
@@ -656,14 +670,7 @@ static void handleSave() {
   if (wifiChanged) {
     String useSsid = prefs.getString("wifi_ssid", "");
     String usePass = prefs.getString("wifi_pass", "");
-    WiFi.disconnect(false);
-    delay(80);
-    WiFi.mode(WIFI_AP_STA);
-    delay(50);
-    ensureAp();
-    WiFi.begin(useSsid.c_str(), usePass.c_str());
-    staTrying = true;
-    lastWifiTry = millis();
+    startSta(useSsid, usePass);
     Serial.printf("[wifi] creds changed, STA try '%s'\n", useSsid.c_str());
   } else {
     Serial.println("[wifi] save remaps only (STA untouched)");
@@ -707,21 +714,52 @@ static void handleOtaUpload() {
 }
 
 static void ensureAp() {
+  // 配置热点一律纯 AP（不要 AP+STA），Windows 对 AP+STA 关联经常失败
+  WiFi.softAPdisconnect(true);
+  delay(20);
+  WiFi.disconnect(false);
+  delay(20);
+  WiFi.mode(WIFI_AP);
+  delay(50);
+
   IPAddress ip(192, 168, 4, 1);
   IPAddress gw(192, 168, 4, 1);
   IPAddress mask(255, 255, 255, 0);
   WiFi.softAPConfig(ip, gw, mask);
-  bool ok = WiFi.softAP(AP_SSID, AP_PASS, 6, 0, 4);
+  bool ok = WiFi.softAP(AP_SSID, AP_PASS, 1, 0, 4);  // ch1 + WPA2
+
+  wifi_config_t cfg{};
+  if (esp_wifi_get_config(WIFI_IF_AP, &cfg) == ESP_OK) {
+    cfg.ap.authmode = WIFI_AUTH_WPA2_PSK;
+    cfg.ap.ssid_hidden = 0;
+    cfg.ap.max_connection = 4;
+    cfg.ap.beacon_interval = 100;
+    esp_wifi_set_config(WIFI_IF_AP, &cfg);
+  }
+
   WiFi.setTxPower(WIFI_POWER_19_5dBm);
   apMode = true;
   snprintf(apSsidShown, sizeof(apSsidShown), "%s", AP_SSID);
-  if (WiFi.status() != WL_CONNECTED) {
-    snprintf(ipStr, sizeof(ipStr), "%s", WiFi.softAPIP().toString().c_str());
-  }
+  snprintf(ipStr, sizeof(ipStr), "%s", WiFi.softAPIP().toString().c_str());
   dirty = true;
-  Serial.printf("[wifi] softAP %s ssid=%s ch=6 ip=%s mode=%d\n",
+  Serial.printf("[wifi] softAP %s ssid=%s ch=1 auth=WPA2 ip=%s mode=%d\n",
                 ok ? "ok" : "FAIL", AP_SSID,
                 WiFi.softAPIP().toString().c_str(), (int)WiFi.getMode());
+}
+
+static void startSta(const String& ssid, const String& pass) {
+  // 连家里网时关掉 AP，保持纯 STA；失败后再回纯 AP
+  WiFi.softAPdisconnect(true);
+  apMode = false;
+  WiFi.disconnect(true, false);
+  delay(60);
+  WiFi.mode(WIFI_STA);
+  delay(40);
+  WiFi.begin(ssid.c_str(), pass.c_str());
+  staTrying = true;
+  lastWifiTry = millis();
+  snprintf(ipStr, sizeof(ipStr), "...");
+  dirty = true;
 }
 
 static void stopAp() {
@@ -737,28 +775,17 @@ static void stopAp() {
 
 void wifiWebBegin() {
   remapsLoad();
-  String ssid = prefs.getString("wifi_ssid", "");
-  String pass = prefs.getString("wifi_pass", "");
 
   WiFi.persistent(false);
   WiFi.disconnect(true, true);
   delay(80);
 
-  if (ssid.length()) {
-    // 先尝试连自家 WiFi；失败再开 AP
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(ssid.c_str(), pass.c_str());
-    staTrying = true;
-    apMode = false;
-    snprintf(ipStr, sizeof(ipStr), "...");
-    Serial.printf("[wifi] STA try '%s' (AP later if fail)\n", ssid.c_str());
-  } else {
-    WiFi.mode(WIFI_AP);
-    delay(50);
-    ensureAp();
-    staTrying = false;
-    Serial.printf("[wifi] AP-only %s / %s\n", AP_SSID, AP_PASS);
-  }
+  // 默认纯 AP，方便 Win/手机配网；家里网只在网页保存 WiFi 后才连
+  WiFi.mode(WIFI_AP);
+  delay(50);
+  ensureAp();
+  staTrying = false;
+  Serial.printf("[wifi] default pure AP %s / %s\n", AP_SSID, AP_PASS);
 
   server.on("/", handleRoot);
   server.on("/api/status", handleStatus);
@@ -787,18 +814,13 @@ void wifiWebLoop() {
   } else if (staTrying && millis() - lastWifiTry > 15000) {
     lastWifiTry = millis();
     staTrying = false;
-    WiFi.disconnect(false);
-    delay(50);
-    WiFi.mode(WIFI_AP);
+    WiFi.disconnect(true, false);
     delay(50);
     ensureAp();
-    Serial.println("[wifi] STA fail -> AP on");
+    Serial.println("[wifi] STA fail -> pure AP");
   } else if (!staTrying && !apMode) {
-    // 断线或重启后未连上：开 AP
-    WiFi.mode(WIFI_AP);
-    delay(30);
     ensureAp();
-    Serial.println("[wifi] offline -> AP on");
+    Serial.println("[wifi] offline -> pure AP");
   }
 }
 
@@ -810,8 +832,6 @@ void wifiWebResetNetwork() {
   staTrying = false;
   WiFi.disconnect(true, true);
   delay(80);
-  WiFi.mode(WIFI_AP);
-  delay(50);
   ensureAp();
   lastWifiTry = millis();
   dirty = true;
