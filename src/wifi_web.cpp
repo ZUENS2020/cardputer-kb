@@ -172,6 +172,9 @@ h1{margin:0;font-family:var(--font-headline);font-size:20px;font-weight:800;lett
 .k{display:inline-flex;align-items:center;justify-content:center;height:44px;padding:0 4px;border-radius:var(--r-1);border:1px solid var(--line);background:var(--key);color:var(--fg-0);font-family:var(--font-label);font-size:11px;font-weight:700;flex:1 1 0;min-width:0;user-select:none}
 .k.mod{background:var(--keymod);color:var(--green-soft)}.k.on{background:var(--accent);border-color:var(--accent-dim);color:var(--fg-inv)}.k.mod.on{background:var(--accent-dim);border-color:var(--accent);color:var(--fg-inv)}
 .k.dim{opacity:.35}.k.u125{flex:1.25 1 0}.k.u15{flex:1.5 1 0}.k.u175{flex:1.75 1 0}.k.u2{flex:2 1 0}.k.u225{flex:2.25 1 0}.k.u275{flex:2.75 1 0}.k.u625{flex:6.25 1 0}
+.kb-sec{margin:0 0 10px}.kb-sec .hint{margin:0 0 6px;font-family:var(--font-label);font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-2)}
+.kb-sec .kr{display:flex;gap:4px;width:100%;margin:0 0 5px}.kb-sec .k{flex:1 1 0;min-width:0;height:40px;font-size:10px}
+.kb-sec.media .k{background:#152033;border-color:#243044}.kb-sec.media .k.on{background:var(--accent);border-color:var(--accent-dim)}
 .kr.indent-05{padding-left:calc((100% - 13*4px)/15 * .5)}
 .kr.indent-075{padding-left:calc((100% - 12*4px)/14 * .75)}
 .ckb{display:flex;flex-direction:column;gap:4px;overflow-x:auto}
@@ -232,7 +235,7 @@ code{font-family:var(--font-mono);font-size:13px;color:var(--green-soft)}
   </div>
   <div class="card">
     <h2>1. 选择电脑端要发送的键</h2>
-    <p class="hint" style="margin-top:0">无控制键：只能选 <b>1</b> 个主键。有控制键：主键个数不限（也可只发控制键）。</p>
+    <p class="hint" style="margin-top:0">无控制键：只能选 <b>1</b> 个主键。有控制键：主键个数不限（也可只发控制键）。<br>笔记本上的 <b>Fn</b> 不会出现在 HID 里，映射不出去；请直接选下方的 <b>F1–F12</b> 或 <b>音量/播放</b> 等媒体键（这才是 Fn 层真正发给系统的东西）。</p>
     <div class="seg" id="passSeg" style="margin-bottom:10px">
       <button type="button" data-pass="0">仅映射键</button>
       <button type="button" data-pass="1">全键透传</button>
@@ -245,7 +248,11 @@ code{font-family:var(--font-mono);font-size:13px;color:var(--green-soft)}
         <button type="button" class="btn btn-primary" id="nextAdv" style="min-height:40px" disabled>下一步：选 ADV</button>
       </div>
     </div>
-    <div class="kb-shell"><div class="kb" id="pcKb"></div></div>
+    <div class="kb-shell">
+      <div class="kb-sec" id="pcFKeys"></div>
+      <div class="kb-sec media" id="pcMedia"></div>
+      <div class="kb" id="pcKb"></div>
+    </div>
   </div>
   <div class="card">
     <h2>映射表</h2>
@@ -308,7 +315,16 @@ const MOD_ORDER_PC=['ctrl','alt','gui','shift','ralt'];
 const MOD_ORDER_ADV=['fn','ctrl','opt','alt','shift'];
 const LAB_PC={ctrl:{0:'⌃',1:'Ctrl'},shift:{0:'⇧',1:'Shift'},alt:{0:'⌥',1:'Alt'},gui:{0:'⌘',1:'Win'},ralt:{0:'⌥R',1:'AltGr'}};
 const LAB_ADV={fn:'fn',ctrl:'ctrl',opt:'opt',alt:'alt',shift:'Aa'};
-const KEY_LAB={space:'Space',enter:'Enter',tab:'Tab',esc:'Esc',bksp:'⌫',del:'del',up:'↑',down:'↓',left:'←',right:'→'};
+const KEY_LAB={space:'Space',enter:'Enter',tab:'Tab',esc:'Esc',bksp:'⌫',del:'del',up:'↑',down:'↓',left:'←',right:'→',
+  f1:'F1',f2:'F2',f3:'F3',f4:'F4',f5:'F5',f6:'F6',f7:'F7',f8:'F8',f9:'F9',f10:'F10',f11:'F11',f12:'F12',
+  vol_up:'Vol+',vol_down:'Vol-',mute:'Mute',play:'Play',next:'Next',prev:'Prev',stop:'Stop',
+  www_home:'Home',calc:'Calc',search:'Search',back:'Back',email:'Mail'};
+const PC_FKEYS=['f1','f2','f3','f4','f5','f6','f7','f8','f9','f10','f11','f12'];
+const PC_MEDIA=[
+  {k:'vol_down',l:'Vol-'},{k:'vol_up',l:'Vol+'},{k:'mute',l:'Mute'},
+  {k:'prev',l:'⏮'},{k:'play',l:'⏯'},{k:'next',l:'⏭'},{k:'stop',l:'⏹'},
+  {k:'www_home',l:'Web'},{k:'search',l:'Search'},{k:'back',l:'Back'},{k:'calc',l:'Calc'},{k:'email',l:'Mail'}
+];
 
 function empty(){return {mods:[],keys:[]}}
 function clone(c){return {mods:[...c.mods],keys:[...c.keys]}}
@@ -383,7 +399,23 @@ function updatePc(){
   $('pcChips').innerHTML=p.map(x=>`<span>${x}</span>`).join('')||'<span style="opacity:.45;border-color:var(--border);background:transparent;color:var(--muted)">点按键组成电脑端组合</span>';
   $('nextAdv').disabled=!valid(pc);
 }
+function bindPcKeys(root){
+  root.querySelectorAll('[data-mod]').forEach(el=>el.onclick=()=>{toggle(pc,el.dataset.mod,true);renderPc();updatePc()});
+  root.querySelectorAll('[data-key]').forEach(el=>el.onclick=()=>{toggle(pc,el.dataset.key,false);renderPc();updatePc()});
+}
+function renderPcExtras(){
+  const mkBtn=(k,l)=>{
+    const on=pc.keys.includes(k);
+    const dim=!on&&!canToggleKey(pc,k,false);
+    return `<button type="button" class="k${on?' on':''}${dim?' dim':''}" data-key="${k}">${l}</button>`;
+  };
+  $('pcFKeys').innerHTML='<div class="hint">F1–F12</div><div class="kr">'+PC_FKEYS.map(k=>mkBtn(k,KEY_LAB[k])).join('')+'</div>';
+  $('pcMedia').innerHTML='<div class="hint">媒体 / 系统（笔记本 Fn 层常见）</div><div class="kr">'+PC_MEDIA.map(x=>mkBtn(x.k,x.l)).join('')+'</div>';
+  bindPcKeys($('pcFKeys'));
+  bindPcKeys($('pcMedia'));
+}
 function renderPc(){
+  renderPcExtras();
   let h='';
   pcRows().forEach((row,ri)=>{
     const ind=ri===2?' indent-075':(ri===3?' indent-05':'');
@@ -397,8 +429,7 @@ function renderPc(){
     h+='</div>';
   });
   $('pcKb').innerHTML=h;
-  $('pcKb').querySelectorAll('[data-mod]').forEach(el=>el.onclick=()=>{toggle(pc,el.dataset.mod,true);renderPc();updatePc()});
-  $('pcKb').querySelectorAll('[data-key]').forEach(el=>el.onclick=()=>{toggle(pc,el.dataset.key,false);renderPc();updatePc()});
+  bindPcKeys($('pcKb'));
   updatePc();
 }
 $('pcClear').onclick=()=>{pc=empty();renderPc()};

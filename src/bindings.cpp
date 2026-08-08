@@ -305,11 +305,67 @@ uint8_t hidKeyFromName(const char* name) {
   if (!strcmp(name, "left")) return KEY_LEFT_ARROW;
   if (!strcmp(name, "right")) return KEY_RIGHT_ARROW;
   if (!strcmp(name, "space")) return ' ';
+  // F1–F12
+  if (name[0] == 'f' || name[0] == 'F') {
+    if (!strcmp(name, "f1") || !strcmp(name, "F1")) return KEY_F1;
+    if (!strcmp(name, "f2") || !strcmp(name, "F2")) return KEY_F2;
+    if (!strcmp(name, "f3") || !strcmp(name, "F3")) return KEY_F3;
+    if (!strcmp(name, "f4") || !strcmp(name, "F4")) return KEY_F4;
+    if (!strcmp(name, "f5") || !strcmp(name, "F5")) return KEY_F5;
+    if (!strcmp(name, "f6") || !strcmp(name, "F6")) return KEY_F6;
+    if (!strcmp(name, "f7") || !strcmp(name, "F7")) return KEY_F7;
+    if (!strcmp(name, "f8") || !strcmp(name, "F8")) return KEY_F8;
+    if (!strcmp(name, "f9") || !strcmp(name, "F9")) return KEY_F9;
+    if (!strcmp(name, "f10") || !strcmp(name, "F10")) return KEY_F10;
+    if (!strcmp(name, "f11") || !strcmp(name, "F11")) return KEY_F11;
+    if (!strcmp(name, "f12") || !strcmp(name, "F12")) return KEY_F12;
+  }
+  // 媒体 / 消费类（笔记本 Fn 层常见动作）
+  if (!strcmp(name, "vol_up") || !strcmp(name, "vol+")) return 0xA1;
+  if (!strcmp(name, "vol_down") || !strcmp(name, "vol-")) return 0xA2;
+  if (!strcmp(name, "mute")) return 0xA3;
+  if (!strcmp(name, "play") || !strcmp(name, "play_pause")) return 0xA4;
+  if (!strcmp(name, "next")) return 0xA5;
+  if (!strcmp(name, "prev")) return 0xA6;
+  if (!strcmp(name, "stop")) return 0xA7;
+  if (!strcmp(name, "www_home") || !strcmp(name, "home")) return 0xA8;
+  if (!strcmp(name, "calc")) return 0xA9;
+  if (!strcmp(name, "search")) return 0xAA;
+  if (!strcmp(name, "back")) return 0xAB;
+  if (!strcmp(name, "email")) return 0xAC;
   if (strlen(name) == 1) return (uint8_t)name[0];
   return 0;
 }
 
+bool hidIsMedia(uint8_t key) {
+  return key >= 0xA1 && key <= 0xAC;
+}
+
+bool hidMediaReportBytes(uint8_t key, uint8_t out[2]) {
+  if (!out || !hidIsMedia(key)) return false;
+  // 与 BleKeyboard.h MediaKeyReport 字节一致
+  static const uint8_t kReports[][2] = {
+    {32, 0},   // A1 vol_up
+    {64, 0},   // A2 vol_down
+    {16, 0},   // A3 mute
+    {8, 0},    // A4 play_pause
+    {1, 0},    // A5 next
+    {2, 0},    // A6 prev
+    {4, 0},    // A7 stop
+    {128, 0},  // A8 www_home
+    {0, 2},    // A9 calc
+    {0, 8},    // AA search
+    {0, 32},   // AB back
+    {0, 128},  // AC email
+  };
+  const uint8_t* r = kReports[key - 0xA1];
+  out[0] = r[0];
+  out[1] = r[1];
+  return true;
+}
+
 void hidKeyToName(uint8_t key, char* out, size_t outLen) {
+  if (!out || !outLen) return;
   if (key == KEY_RETURN) snprintf(out, outLen, "enter");
   else if (key == KEY_TAB) snprintf(out, outLen, "tab");
   else if (key == KEY_ESC) snprintf(out, outLen, "esc");
@@ -319,6 +375,30 @@ void hidKeyToName(uint8_t key, char* out, size_t outLen) {
   else if (key == KEY_LEFT_ARROW) snprintf(out, outLen, "left");
   else if (key == KEY_RIGHT_ARROW) snprintf(out, outLen, "right");
   else if (key == ' ') snprintf(out, outLen, "space");
+  else if (key == KEY_F1) snprintf(out, outLen, "f1");
+  else if (key == KEY_F2) snprintf(out, outLen, "f2");
+  else if (key == KEY_F3) snprintf(out, outLen, "f3");
+  else if (key == KEY_F4) snprintf(out, outLen, "f4");
+  else if (key == KEY_F5) snprintf(out, outLen, "f5");
+  else if (key == KEY_F6) snprintf(out, outLen, "f6");
+  else if (key == KEY_F7) snprintf(out, outLen, "f7");
+  else if (key == KEY_F8) snprintf(out, outLen, "f8");
+  else if (key == KEY_F9) snprintf(out, outLen, "f9");
+  else if (key == KEY_F10) snprintf(out, outLen, "f10");
+  else if (key == KEY_F11) snprintf(out, outLen, "f11");
+  else if (key == KEY_F12) snprintf(out, outLen, "f12");
+  else if (key == 0xA1) snprintf(out, outLen, "vol_up");
+  else if (key == 0xA2) snprintf(out, outLen, "vol_down");
+  else if (key == 0xA3) snprintf(out, outLen, "mute");
+  else if (key == 0xA4) snprintf(out, outLen, "play");
+  else if (key == 0xA5) snprintf(out, outLen, "next");
+  else if (key == 0xA6) snprintf(out, outLen, "prev");
+  else if (key == 0xA7) snprintf(out, outLen, "stop");
+  else if (key == 0xA8) snprintf(out, outLen, "www_home");
+  else if (key == 0xA9) snprintf(out, outLen, "calc");
+  else if (key == 0xAA) snprintf(out, outLen, "search");
+  else if (key == 0xAB) snprintf(out, outLen, "back");
+  else if (key == 0xAC) snprintf(out, outLen, "email");
   else if (key >= 32 && key < 127) snprintf(out, outLen, "%c", (char)key);
   else snprintf(out, outLen, "");
 }

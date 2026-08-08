@@ -56,8 +56,17 @@ static void sendComboPc(const KeyCombo& h) {
     delay(10);
   }
   for (uint8_t i = 0; i < h.nkey; i++) {
-    bleKeyboard.press(h.keys[i]);
-    delay(10);
+    uint8_t k = h.keys[i];
+    if (hidIsMedia(k)) {
+      uint8_t m[2] = {0, 0};
+      if (hidMediaReportBytes(k, m)) {
+        bleKeyboard.press(m);
+        delay(10);
+      }
+    } else {
+      bleKeyboard.press(k);
+      delay(10);
+    }
   }
   delay(35);
   bleKeyboard.releaseAll();

@@ -73,3 +73,7 @@ uint8_t hidModFromName(const char* name);
 const char* hidModName(uint8_t mod);
 uint8_t hidKeyFromName(const char* name);
 void hidKeyToName(uint8_t key, char* out, size_t outLen);
+
+// 媒体键编码进 keys[]：0xA1..0xAF（不与 ASCII / F 键冲突）
+bool hidIsMedia(uint8_t key);
+bool hidMediaReportBytes(uint8_t key, uint8_t out[2]);
