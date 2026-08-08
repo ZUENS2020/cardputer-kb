@@ -1,6 +1,6 @@
 # Cardputer KB
 
-把 M5Stack **Cardputer ADV** 变成可网页配置的 **BLE HID 键盘**：自定义组合键重映射、WiFi 配网、OTA 升级。
+把 M5Stack **Cardputer ADV** 变成可网页配置的 **BLE HID 键盘**：自定义组合键重映射、本机键盘配网、OTA 升级。
 
 蓝牙广播名：**Cardputer KB**
 
@@ -8,102 +8,43 @@
 
 1. 烧录固件（见下方）
 2. 电脑蓝牙搜索并配对 **Cardputer KB**
-3. **开机默认开放配网热点**（无密码；AP+STA，方便扫网）：
-   - SSID：`Cardputer-KB`（OPEN）
-   - 打开 [http://192.168.4.1](http://192.168.4.1)
-4. 在网页「WiFi」页扫描并加入网络（**只能从扫描列表选，不能手输 SSID**）
-5. 连上后 AP 关闭，用局域网 IP 访问；失败则回到开放热点
-6. 「键盘」页添加映射 → 底部 **保存并应用**（Mac / Windows 两套一起保存）
+3. **配网在设备上完成**（无 SoftAP / 无网页 WiFi 页）：
+   - 无已存 WiFi 时开机自动进入配网；或按 **Opt+W**
+   - 等待扫描 → `;` / `.` 上下选网 → **Enter**
+   - 用本机键盘输入密码（开放网直接 Enter）→ **Enter** 连接
+   - `` ` ``（Esc）返回 / 取消
+4. 连上后屏显 `Web x.x.x.x`，浏览器打开该地址配置**键盘映射 / OTA**
+5. 「键盘」页添加映射 → 底部 **保存并应用**（Mac / Windows 两套一起保存）
 
-**Windows 连不上热点时**（ESP SoftAP + WPA 常见坑）：用 USB 串口 115200：
+也可 USB 串口 115200：
 
 ```text
 wifi 你家SSID 你家密码
 wifi clear
+wifi ui
+wifi scan
 ```
-
-说明：配网热点保持**开放**（解决 Win 连不上）；同时开 STA 射频（解决扫网）。连上家里网后切回纯 STA。
-
-重置 WiFi：设备上按 **Opt+W**，或串口 `wifi clear`。  
-重启后回到开放配置热点；家里网凭据仍在，可用网页或串口再连。
 
 ## 本地保留键
 
-这些组合不参与重映射，固件本地处理：
-
 | 组合 | 作用 |
-|---|---|
-| **Opt+P** | 手动切换 Mac ↔ Windows，写入 NVS；并在本轮 BLE 连接内禁止自动探测覆盖 |
-| **Opt+R** | 清除 BLE bond、断开、重新广播（主机需忘掉旧设备后重配对） |
-| **Opt+W** | 删除已存 WiFi 凭据，强制开配置 AP |
-| **Aa+`** | 返回 bmorcelli Launcher（需用 launcher 分区烧录才有入口） |
-
-屏幕在已连 WiFi 时底部会提示：`Opt+P/R/W  Aa+\` launcher`。
-
-## 网页重映射
-
-默认映射表为空（无任何出厂预设）。
-
-流程：
-
-1. 顶部切换 **编辑 Mac** / **编辑 Windows**（两套表；保存时一起写入）
-2. 选择 **电脑将收到** 的组合 → **下一步：选 ADV**
-3. 在弹层里选 **ADV 上的触发组合** → **加入映射表**
-4. 底部 **保存并应用**
-
-规则：
-
-- 无修饰键：只能选 **1** 个主键
-- 有修饰键：主键个数不限（也可只发修饰键）；HID 侧修饰最多 4、主键最多 6
-- 电脑端另有独立 **F1–F12** 与 **媒体键**（音量 / 播放 / 静音等）。笔记本上的 **Fn 本身不会出现在 HID 里**，映射不出去——请直接选这些目标键
-- 冲突判定：仅当 **整段 ADV 触发组合完全相同** 才冲突
-- 模式：
-  - **仅映射键**：未出现在任何触发里的物理键不发出
-  - **全键透传**：未映射的键按原样发给电脑
-
-蓝牙连上后会按主机特征（Battery 订阅、连接间隔、MTU、地址类型）**自动猜测** Mac / Windows，并切换当前使用的映射表。猜错用 **Opt+P**，或在网页改完后保存。
-
-## OTA
-
-「OTA」页上传 PlatformIO 产出的 `firmware.bin`（例如 `.pio/build/cardputer-adv/firmware.bin`）。建议在已连 STA 的稳定网络下升级。
+|------|------|
+| **Opt+P** | 切换 Mac / Windows 映射表 |
+| **Opt+R** | 清除 BLE 绑定并重新广播 |
+| **Opt+W** | 清除 WiFi 凭据并进入本机配网 |
+| **Aa+`** | 回到 Launcher |
 
 ## 构建 / 烧录
 
 ```bash
-# 标准双 OTA 分区（推荐，支持网页 OTA）
+cd <本仓库>
 pio run -e cardputer-adv -t upload
-
-# bmorcelli Launcher 兼容分区（Aa+` 回 Launcher）
-pio run -e cardputer-adv-launcher -t upload
 ```
 
-- 串口波特率 `115200`
-- ESP32-S3 原生 USB 复位后端口常在 `cu.usbmodem1101` ↔ `1201` 间跳；不确定时：
+务必带 `-e cardputer-adv`。
 
-```bash
-P=$(ls /dev/cu.usbmodem* | head -1)
-pio run -e cardputer-adv -t upload --upload-port "$P"
-```
+## 说明
 
-### 串口命令
-
-| 命令 | 作用 |
-|---|---|
-| `status` | BLE / 平台 / 映射数 / WiFi / 电量 |
-| `platform` / `platform mac` / `platform win` | 手动切平台 |
-| `keymap` | 10 秒内串口打印物理按键调试信息 |
-| `repair` | 同 Opt+R |
-| `wifi <ssid> [pass]` | 串口写入家里网并连接（Win 连不上 AP 时用这个） |
-| `wifi clear` | 同 Opt+W，回开放配置热点 |
-| `wifi` | 显示当前 WiFi 状态 |
-
-## 硬件与限制
-
-- 板子：Cardputer ADV（ESP32-S3FN8，**无 PSRAM**）
-- 只有 BLE，没有 Classic 蓝牙
-- 分区：`default_8MB.csv`（双 OTA，各约 3.3MB）；Launcher 版用 `partitions_launcher.csv`
-- BLE 与 WiFi 共存：启动顺序为先 BLE 再 WiFi；不要对 STA 关 WiFi sleep（会与 BLE 冲突）
-
-## 仓库
-
-https://github.com/ZUENS2020/cardputer-kb
+- WiFi 仅 **2.4GHz**
+- 网页不再提供 WiFi 标签；连网只走本机键盘或串口
+- BLE 与 WiFi 共存时勿关闭 WiFi modem sleep

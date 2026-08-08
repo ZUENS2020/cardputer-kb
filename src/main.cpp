@@ -2,9 +2,9 @@
 //
 // 重映射：ADV 组合 → 电脑组合（网页配置）。默认无预设。
 // 未映射键：可选透传或屏蔽。
-// 本地保留：Opt+P 切平台 / Opt+R 重配对 / Opt+W 重置 WiFi+AP / Aa+` 回 Launcher
+// 本地保留：Opt+P 切平台 / Opt+R 重配对 / Opt+W 设备配网 / Aa+` 回 Launcher
 //
-// 网页：http://<IP>  → WiFi / 键盘重映射 / OTA
+// 配网：本机键盘扫网+输密码（无 SoftAP）。网页仅键盘映射 / OTA（需已连 WiFi）。
 
 #include <M5Cardputer.h>
 #undef KEY_LEFT_CTRL
@@ -38,6 +38,26 @@ M5Canvas cv(&M5Cardputer.Display);
 
 String cmdBuf;
 uint32_t keymapUntil = 0;
+
+// —— 设备端 WiFi 配网 UI ——
+enum class WifiUi : uint8_t { Off, Scanning, List, Pass, Connecting, Result };
+static WifiUi wifiUi = WifiUi::Off;
+static constexpr int WIFI_HIT_MAX = 16;
+static WifiScanHit wifiHits[WIFI_HIT_MAX];
+static int wifiHitCount = 0;
+static int wifiSel = 0;
+static int wifiListTop = 0;
+static char wifiPassBuf[65] = "";
+static char wifiPickSsid[33] = "";
+static char wifiStatusLine[40] = "";
+static char wifiStatusSub[48] = "";
+static bool wifiNeedScan = false;
+static bool wifiTriedConnect = false;
+static bool wifiResultOk = false;
+static uint32_t wifiConnDeadline = 0;
+static bool wPrevUp = false, wPrevDown = false, wPrevEnter = false, wPrevEsc = false, wPrevDel = false,
+            wPrevSpace = false;
+static bool wPrevCh[128] = {};
 
 // 透传按键状态
 static bool prevCtrl = false, prevAlt = false, prevOpt = false;
@@ -100,12 +120,145 @@ static void doRePair() {
 
 static void updateBattery();
 
+static void wifiUiEnter() {
+  wifiWebStashCurrent();  // 暂存旧网，不立刻断开
+  wifiTriedConnect = false;
+  wifiResultOk = false;
+  wifiUi = WifiUi::Scanning;
+  wifiNeedScan = true;
+  wifiHitCount = 0;
+  wifiSel = 0;
+  wifiListTop = 0;
+  wifiPassBuf[0] = 0;
+  wifiPickSsid[0] = 0;
+  wifiStatusSub[0] = 0;
+  snprintf(wifiStatusLine, sizeof(wifiStatusLine), "Scanning...");
+  dirty = true;
+}
+
+static void wifiUiShowResult(bool ok, const char* title, const char* sub) {
+  wifiUi = WifiUi::Result;
+  wifiResultOk = ok;
+  snprintf(wifiStatusLine, sizeof(wifiStatusLine), "%s", title ? title : "");
+  snprintf(wifiStatusSub, sizeof(wifiStatusSub), "%s", sub ? sub : "");
+  dirty = true;
+}
+
+static void wifiUiRollback(const char* title) {
+  bool restored = wifiWebRestoreStash();
+  if (restored) {
+    char sub[48];
+    snprintf(sub, sizeof(sub), "Restored %s", wifiWebStashSsid());
+    wifiUiShowResult(false, title ? title : "Failed", sub);
+  } else {
+    wifiUiShowResult(false, title ? title : "Failed", "No prior WiFi");
+  }
+}
+
+static void wifiUiExit() {
+  wifiUi = WifiUi::Off;
+  wifiNeedScan = false;
+  wifiTriedConnect = false;
+  wifiStatusSub[0] = 0;
+  dirty = true;
+}
+
+static void wifiUiCancel() {
+  // Esc：若已尝试连新网或当前已掉线，回退旧网
+  if (wifiTriedConnect || !wifiWebConnected()) {
+    if (wifiWebHasStash() || wifiTriedConnect) {
+      wifiUiRollback("Cancelled");
+      return;
+    }
+  }
+  wifiUiExit();
+}
+
+static void drawWifiUI() {
+  cv.fillSprite(TFT_BLACK);
+  cv.setTextDatum(TL_DATUM);
+  cv.setTextSize(1);
+  cv.setTextColor(TFT_CYAN, TFT_BLACK);
+  cv.drawString("WiFi setup", 6, 4);
+  cv.setTextColor(0x8410, TFT_BLACK);
+  cv.drawString("Esc=back  Ent=ok", 130, 4);
+  cv.drawFastHLine(0, 16, 240, 0x4208);
+
+  if (wifiUi == WifiUi::Scanning) {
+    cv.setTextColor(TFT_WHITE, TFT_BLACK);
+    cv.setTextSize(2);
+    cv.drawString("Scanning...", 6, 50);
+    cv.setTextSize(1);
+    cv.setTextColor(0xAD55, TFT_BLACK);
+    cv.drawString("2.4GHz only", 6, 90);
+  } else if (wifiUi == WifiUi::List) {
+    cv.setTextColor(0xAD55, TFT_BLACK);
+    cv.drawString(";/. move  Enter select", 6, 20);
+    const int visible = 5;
+    if (wifiSel < wifiListTop) wifiListTop = wifiSel;
+    if (wifiSel >= wifiListTop + visible) wifiListTop = wifiSel - visible + 1;
+    for (int i = 0; i < visible; i++) {
+      int idx = wifiListTop + i;
+      if (idx >= wifiHitCount) break;
+      int y = 34 + i * 18;
+      bool on = (idx == wifiSel);
+      if (on) cv.fillRect(0, y - 2, 240, 17, 0x1A2F);
+      cv.setTextColor(on ? TFT_GREEN : TFT_WHITE, on ? 0x1A2F : TFT_BLACK);
+      char line[40];
+      snprintf(line, sizeof(line), "%d %s", (int)wifiHits[idx].rssi, wifiHits[idx].ssid);
+      if (strlen(line) > 36) {
+        line[33] = '.';
+        line[34] = '.';
+        line[35] = '.';
+        line[36] = 0;
+      }
+      cv.drawString(line, 6, y);
+    }
+  } else if (wifiUi == WifiUi::Pass) {
+    cv.setTextColor(TFT_WHITE, TFT_BLACK);
+    cv.drawString(wifiPickSsid, 6, 22);
+    cv.setTextColor(0xAD55, TFT_BLACK);
+    cv.drawString("Password (empty=open):", 6, 40);
+    cv.setTextColor(TFT_GREEN, TFT_BLACK);
+    cv.setTextSize(2);
+    char stars[65];
+    size_t n = strlen(wifiPassBuf);
+    for (size_t i = 0; i < n && i < 20; i++) stars[i] = '*';
+    stars[n > 20 ? 20 : n] = 0;
+    cv.drawString(n ? stars : "_", 6, 62);
+    cv.setTextSize(1);
+    cv.setTextColor(0x8410, TFT_BLACK);
+    cv.drawString("type on keyboard", 6, 100);
+  } else if (wifiUi == WifiUi::Connecting) {
+    cv.setTextColor(TFT_WHITE, TFT_BLACK);
+    cv.setTextSize(2);
+    cv.drawString("Connecting...", 6, 44);
+    cv.setTextSize(1);
+    cv.setTextColor(TFT_CYAN, TFT_BLACK);
+    cv.drawString(wifiPickSsid, 6, 80);
+  } else if (wifiUi == WifiUi::Result) {
+    cv.setTextColor(wifiResultOk ? TFT_GREEN : TFT_YELLOW, TFT_BLACK);
+    cv.setTextSize(2);
+    cv.drawString(wifiStatusLine, 6, 36);
+    cv.setTextSize(1);
+    cv.setTextColor(TFT_WHITE, TFT_BLACK);
+    if (wifiStatusSub[0]) cv.drawString(wifiStatusSub, 6, 68);
+    cv.setTextColor(0xAD55, TFT_BLACK);
+    cv.drawString("Enter / Esc close", 6, 100);
+  }
+  cv.pushSprite(0, 0);
+}
+
 static void drawUI() {
+  if (wifiUi != WifiUi::Off) {
+    drawWifiUI();
+    return;
+  }
+
   cv.fillSprite(TFT_BLACK);
   cv.setTextDatum(TL_DATUM);
   cv.setTextSize(1);
 
-  // 顶栏（不用橙色，避免被当成告警）
   cv.setTextColor(bleConn ? TFT_GREEN : 0xAD55, TFT_BLACK);
   cv.drawString(bleConn ? "BLE OK" : "BLE ...", 6, 6);
   {
@@ -124,7 +277,7 @@ static void drawUI() {
   cv.drawString(platform ? "Windows" : "Mac", 6, 36);
   cv.setTextSize(1);
   cv.setTextColor(0xAD55, TFT_BLACK);
-  cv.drawString(remapsPassThrough() ? "Mode: full pass-through" : "Mode: mapped keys only", 6, 62);
+  cv.drawString("Mode: mapped keys only", 6, 62);
   cv.setTextColor(TFT_CYAN, TFT_BLACK);
   cv.drawString(String("Remaps: ") + remapCount(platform), 6, 80);
 
@@ -134,13 +287,13 @@ static void drawUI() {
     cv.drawString(String("Web ") + wifiWebIpString(), 6, 102);
     cv.setTextColor(0x8410, TFT_BLACK);
     cv.drawString("Opt+P/R/W  Aa+` launcher", 6, 118);
-  } else if (wifiWebApMode()) {
-    cv.setTextColor(TFT_CYAN, TFT_BLACK);
-    cv.drawString(String("AP ") + wifiWebApSsid() + " OPEN", 6, 102);
-    cv.drawString(String("http://") + wifiWebIpString(), 6, 116);
   } else {
-    cv.setTextColor(0xAD55, TFT_BLACK);
-    cv.drawString("WiFi connecting...", 6, 102);
+    cv.setTextColor(TFT_YELLOW, TFT_BLACK);
+    const char* ss = wifiWebSsid();
+    if (ss && ss[0]) cv.drawString(String("WiFi ") + ss + "...", 6, 102);
+    else cv.drawString("WiFi off — Opt+W setup", 6, 102);
+    cv.setTextColor(0x8410, TFT_BLACK);
+    cv.drawString("keyboard to join 2.4G", 6, 118);
   }
 
   if (repairMsgUntil) {
@@ -178,12 +331,14 @@ static void runPlatformDetect() {
 }
 
 static void printStatus() {
-  Serial.printf("[status] BLE=%s platform=%s remaps=%u wifi=%s ip=%s batt=%d%%\n",
+  Serial.printf("[status] BLE=%s platform=%s remaps=%u wifi=%s ip=%s ssid=%s batt=%d%%\n",
                 bleConn ? "connected" : "advertising",
                 platform ? "Windows" : "Mac",
                 remapCount(platform),
-                wifiWebConnected() ? "up" : (wifiWebApMode() ? "ap" : "down"),
-                wifiWebIpString(), batLevel);
+                wifiWebConnected() ? "up" : "down",
+                wifiWebIpString(),
+                wifiWebSsid(),
+                batLevel);
 }
 
 static void handleCommand(String line) {
@@ -216,23 +371,25 @@ static void handleCommand(String line) {
     rest.trim();
     if (!rest.length() || rest == "status") {
       Serial.printf("[wifi] mode=%s ip=%s ssid=%s\n",
-                    wifiWebConnected() ? "STA" : (wifiWebApMode() ? "AP-OPEN" : "down"),
+                    wifiWebConnected() ? "STA" : "down",
                     wifiWebIpString(),
                     prefs.getString("wifi_ssid", "").c_str());
     } else if (rest == "clear" || rest == "reset") {
       wifiWebResetNetwork();
-      Serial.println("[wifi] cleared -> OPEN AP");
+      Serial.println("[wifi] cleared — Opt+W on device to setup");
     } else if (rest == "scan") {
       wifiWebDiagScan();
+    } else if (rest == "ui") {
+      wifiUiEnter();
+      Serial.println("[wifi] open device setup UI");
     } else {
-      // wifi <ssid> <password...> ；开放网可只写 ssid
       int sp = rest.indexOf(' ');
       String ssid = (sp < 0) ? rest : rest.substring(0, sp);
       String pass = (sp < 0) ? "" : rest.substring(sp + 1);
       ssid.trim();
       pass.trim();
       if (!ssid.length()) {
-        Serial.println("[wifi] usage: wifi <ssid> [password] | wifi clear");
+        Serial.println("[wifi] usage: wifi <ssid> [password] | wifi clear | wifi ui");
       } else if (wifiWebConnectHome(ssid.c_str(), pass.c_str())) {
         Serial.printf("[wifi] connecting '%s'...\n", ssid.c_str());
       }
@@ -267,8 +424,114 @@ static char normChar(char c) {
   return c;
 }
 
+static void handleWifiKeyboard() {
+  auto ks = M5Cardputer.Keyboard.keysState();
+  bool up = hasChar(ks.word, ';');
+  bool down = hasChar(ks.word, '.');
+  bool enter = ks.enter;
+  bool esc = !ks.shift && (hasChar(ks.word, '`') || hasChar(ks.word, '~'));
+
+  auto edge = [](bool now, bool& prev) {
+    bool e = now && !prev;
+    prev = now;
+    return e;
+  };
+
+  if (wifiUi == WifiUi::List) {
+    if (edge(up, wPrevUp) && wifiHitCount > 0) {
+      wifiSel = (wifiSel + wifiHitCount - 1) % wifiHitCount;
+      dirty = true;
+    }
+    if (edge(down, wPrevDown) && wifiHitCount > 0) {
+      wifiSel = (wifiSel + 1) % wifiHitCount;
+      dirty = true;
+    }
+    if (edge(enter, wPrevEnter) && wifiHitCount > 0) {
+      strncpy(wifiPickSsid, wifiHits[wifiSel].ssid, sizeof(wifiPickSsid) - 1);
+      wifiPickSsid[sizeof(wifiPickSsid) - 1] = 0;
+      wifiPassBuf[0] = 0;
+      wifiUi = WifiUi::Pass;
+      dirty = true;
+    }
+    if (edge(esc, wPrevEsc)) wifiUiCancel();
+    wPrevDel = ks.del;
+  } else if (wifiUi == WifiUi::Pass) {
+    if (edge(esc, wPrevEsc)) {
+      wifiUi = WifiUi::List;
+      dirty = true;
+    } else if (edge(enter, wPrevEnter)) {
+      wifiTriedConnect = true;
+      wifiUi = WifiUi::Connecting;
+      wifiStatusSub[0] = 0;
+      snprintf(wifiStatusLine, sizeof(wifiStatusLine), "Connecting...");
+      wifiConnDeadline = millis() + 18000;
+      wifiWebConnectHome(wifiPickSsid, wifiPassBuf);
+      dirty = true;
+    } else if (edge(ks.del, wPrevDel)) {
+      size_t n = strlen(wifiPassBuf);
+      if (n) {
+        wifiPassBuf[n - 1] = 0;
+        dirty = true;
+      }
+    } else if (edge(ks.space, wPrevSpace)) {
+      size_t n = strlen(wifiPassBuf);
+      if (n + 1 < sizeof(wifiPassBuf)) {
+        wifiPassBuf[n] = ' ';
+        wifiPassBuf[n + 1] = 0;
+        dirty = true;
+      }
+    } else {
+      // 追加可打印字符（边沿）
+      for (char c : ks.word) {
+        if (c == ';' || c == '.' || c == '`' || c == '~') continue;
+        uint8_t u = (uint8_t)c;
+        if (u < 32 || u >= 127) continue;
+        if (!wPrevCh[u]) {
+          size_t n = strlen(wifiPassBuf);
+          if (n + 1 < sizeof(wifiPassBuf)) {
+            wifiPassBuf[n] = c;
+            wifiPassBuf[n + 1] = 0;
+            dirty = true;
+          }
+        }
+        wPrevCh[u] = true;
+      }
+      for (int i = 32; i < 127; i++) {
+        bool still = false;
+        for (char c : ks.word)
+          if ((uint8_t)c == i) {
+            still = true;
+            break;
+          }
+        if (!still) wPrevCh[i] = false;
+      }
+    }
+    wPrevUp = up;
+    wPrevDown = down;
+  } else if (wifiUi == WifiUi::Result) {
+    if (edge(enter, wPrevEnter) || edge(esc, wPrevEsc)) wifiUiExit();
+    wPrevUp = up;
+    wPrevDown = down;
+    wPrevDel = ks.del;
+  } else {
+    // Scanning / Connecting：Esc 取消（连接中会回退）
+    if (edge(esc, wPrevEsc)) {
+      wifiUiCancel();
+    }
+    wPrevUp = up;
+    wPrevDown = down;
+    wPrevEnter = enter;
+    wPrevDel = ks.del;
+  }
+}
+
 // 宏 / 透传：组合触发优先；触发里用到的物理键不透传
 static void handleKeyboard() {
+  if (wifiUi != WifiUi::Off) {
+    handleWifiKeyboard();
+    return;
+  }
+
   auto ks = M5Cardputer.Keyboard.keysState();
 
   if (keymapUntil && millis() < keymapUntil) {
@@ -292,7 +555,7 @@ static void handleKeyboard() {
     prevShiftBacktick = false;
   }
 
-  // —— 本地保留：Opt+P 平台 / Opt+R 重配对 / Opt+W 重置 WiFi+AP ——
+  // —— 本地保留：Opt+P 平台 / Opt+R 重配对 / Opt+W 设备配网 ——
   if (ks.opt) {
     bool oP = hasChar(ks.word, 'p') || hasChar(ks.word, 'P');
     if (oP && !prevOptP) {
@@ -311,8 +574,7 @@ static void handleKeyboard() {
 
     bool oW = hasChar(ks.word, 'w') || hasChar(ks.word, 'W');
     if (oW && !prevOptW) {
-      wifiWebResetNetwork();
-      dirty = true;
+      wifiUiEnter();  // 暂存旧网，不立刻断开
     }
     prevOptW = oW;
   } else {
@@ -445,6 +707,9 @@ void setup() {
   delay(150);
   wifiWebBegin();
   updateBattery();
+  if (!prefs.getString("wifi_ssid", "").length()) {
+    wifiUiEnter();
+  }
   drawUI();
 }
 
@@ -487,6 +752,37 @@ void loop() {
   M5Cardputer.update();
   wifiWebLoop();
   pollSerial();
+
+  if (wifiUi == WifiUi::Scanning && wifiNeedScan) {
+    wifiNeedScan = false;
+    drawUI();
+    wifiHitCount = wifiScanNetworks(wifiHits, WIFI_HIT_MAX);
+    wifiSel = 0;
+    wifiListTop = 0;
+    if (wifiHitCount > 0) {
+      wifiUi = WifiUi::List;
+      dirty = true;
+    } else {
+      // 扫不到网：不断开则保持旧网；若已掉线则回退
+      if (!wifiWebConnected() && wifiWebHasStash()) {
+        wifiUiRollback("Scan fail");
+      } else {
+        wifiUiShowResult(false, "Scan fail",
+                         wifiWebConnected() ? "Kept current WiFi" : "No networks");
+      }
+    }
+  }
+  if (wifiUi == WifiUi::Connecting) {
+    if (wifiWebConnected()) {
+      wifiWebClearStash();
+      char sub[48];
+      snprintf(sub, sizeof(sub), "%s  %s", wifiPickSsid, wifiWebIpString());
+      wifiUiShowResult(true, "Connected", sub);
+    } else if (millis() > wifiConnDeadline) {
+      wifiUiRollback("Connect fail");
+    }
+  }
+
   handleKeyboard();
   runPlatformDetect();
 

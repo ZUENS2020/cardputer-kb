@@ -275,11 +275,14 @@ uint8_t physKeyFromName(const char* name) {
 
 uint8_t hidModFromName(const char* name) {
   if (!name) return 0;
-  if (!strcmp(name, "ctrl")) return KEY_LEFT_CTRL;
-  if (!strcmp(name, "shift")) return KEY_LEFT_SHIFT;
-  if (!strcmp(name, "alt")) return KEY_LEFT_ALT;
-  if (!strcmp(name, "gui")) return KEY_LEFT_GUI;
-  if (!strcmp(name, "ralt")) return KEY_RIGHT_ALT;
+  if (!strcmp(name, "ctrl") || !strcmp(name, "lctrl")) return KEY_LEFT_CTRL;
+  if (!strcmp(name, "shift") || !strcmp(name, "lshift")) return KEY_LEFT_SHIFT;
+  if (!strcmp(name, "alt") || !strcmp(name, "lalt")) return KEY_LEFT_ALT;
+  if (!strcmp(name, "gui") || !strcmp(name, "win") || !strcmp(name, "lgui")) return KEY_LEFT_GUI;
+  if (!strcmp(name, "ralt") || !strcmp(name, "altgr")) return KEY_RIGHT_ALT;
+  if (!strcmp(name, "rctrl")) return KEY_RIGHT_CTRL;
+  if (!strcmp(name, "rshift")) return KEY_RIGHT_SHIFT;
+  if (!strcmp(name, "rgui") || !strcmp(name, "rwin")) return KEY_RIGHT_GUI;
   return 0;
 }
 
@@ -290,6 +293,9 @@ const char* hidModName(uint8_t mod) {
     case KEY_LEFT_ALT: return "alt";
     case KEY_LEFT_GUI: return "gui";
     case KEY_RIGHT_ALT: return "ralt";
+    case KEY_RIGHT_CTRL: return "rctrl";
+    case KEY_RIGHT_SHIFT: return "rshift";
+    case KEY_RIGHT_GUI: return "rgui";
     default: return "";
   }
 }
@@ -299,12 +305,40 @@ uint8_t hidKeyFromName(const char* name) {
   if (!strcmp(name, "enter")) return KEY_RETURN;
   if (!strcmp(name, "tab")) return KEY_TAB;
   if (!strcmp(name, "esc")) return KEY_ESC;
-  if (!strcmp(name, "bksp")) return KEY_BACKSPACE;
+  if (!strcmp(name, "bksp") || !strcmp(name, "backspace")) return KEY_BACKSPACE;
   if (!strcmp(name, "up")) return KEY_UP_ARROW;
   if (!strcmp(name, "down")) return KEY_DOWN_ARROW;
   if (!strcmp(name, "left")) return KEY_LEFT_ARROW;
   if (!strcmp(name, "right")) return KEY_RIGHT_ARROW;
   if (!strcmp(name, "space")) return ' ';
+  if (!strcmp(name, "caps") || !strcmp(name, "capslock")) return KEY_CAPS_LOCK;
+  if (!strcmp(name, "ins") || !strcmp(name, "insert")) return KEY_INSERT;
+  if (!strcmp(name, "del") || !strcmp(name, "delete")) return KEY_DELETE;
+  if (!strcmp(name, "home")) return KEY_HOME;
+  if (!strcmp(name, "end")) return KEY_END;
+  if (!strcmp(name, "pgup") || !strcmp(name, "pageup")) return KEY_PAGE_UP;
+  if (!strcmp(name, "pgdn") || !strcmp(name, "pagedown")) return KEY_PAGE_DOWN;
+  if (!strcmp(name, "prtsc") || !strcmp(name, "printscreen")) return KEY_PRTSC;
+  if (!strcmp(name, "scrlk") || !strcmp(name, "scrolllock")) return 0xCF;  // KEY_SCROLL_LOCK
+  if (!strcmp(name, "pause") || !strcmp(name, "break")) return 0xD0;       // KEY_PAUSE
+  if (!strcmp(name, "numlk") || !strcmp(name, "numlock")) return 0xDB;     // KEY_NUM_LOCK
+  if (!strcmp(name, "menu") || !strcmp(name, "app")) return 0xED;          // KEY_MENU / Application
+  if (!strcmp(name, "num0")) return KEY_NUM_0;
+  if (!strcmp(name, "num1")) return KEY_NUM_1;
+  if (!strcmp(name, "num2")) return KEY_NUM_2;
+  if (!strcmp(name, "num3")) return KEY_NUM_3;
+  if (!strcmp(name, "num4")) return KEY_NUM_4;
+  if (!strcmp(name, "num5")) return KEY_NUM_5;
+  if (!strcmp(name, "num6")) return KEY_NUM_6;
+  if (!strcmp(name, "num7")) return KEY_NUM_7;
+  if (!strcmp(name, "num8")) return KEY_NUM_8;
+  if (!strcmp(name, "num9")) return KEY_NUM_9;
+  if (!strcmp(name, "num_slash") || !strcmp(name, "num/")) return KEY_NUM_SLASH;
+  if (!strcmp(name, "num_asterisk") || !strcmp(name, "num*")) return KEY_NUM_ASTERISK;
+  if (!strcmp(name, "num_minus") || !strcmp(name, "num-")) return KEY_NUM_MINUS;
+  if (!strcmp(name, "num_plus") || !strcmp(name, "num+")) return KEY_NUM_PLUS;
+  if (!strcmp(name, "num_enter")) return KEY_NUM_ENTER;
+  if (!strcmp(name, "num_period") || !strcmp(name, "num.")) return KEY_NUM_PERIOD;
   // F1–F12
   if (name[0] == 'f' || name[0] == 'F') {
     if (!strcmp(name, "f1") || !strcmp(name, "F1")) return KEY_F1;
@@ -328,7 +362,7 @@ uint8_t hidKeyFromName(const char* name) {
   if (!strcmp(name, "next")) return 0xA5;
   if (!strcmp(name, "prev")) return 0xA6;
   if (!strcmp(name, "stop")) return 0xA7;
-  if (!strcmp(name, "www_home") || !strcmp(name, "home")) return 0xA8;
+  if (!strcmp(name, "www_home")) return 0xA8;
   if (!strcmp(name, "calc")) return 0xA9;
   if (!strcmp(name, "search")) return 0xAA;
   if (!strcmp(name, "back")) return 0xAB;
@@ -375,6 +409,34 @@ void hidKeyToName(uint8_t key, char* out, size_t outLen) {
   else if (key == KEY_LEFT_ARROW) snprintf(out, outLen, "left");
   else if (key == KEY_RIGHT_ARROW) snprintf(out, outLen, "right");
   else if (key == ' ') snprintf(out, outLen, "space");
+  else if (key == KEY_CAPS_LOCK) snprintf(out, outLen, "caps");
+  else if (key == KEY_INSERT) snprintf(out, outLen, "ins");
+  else if (key == KEY_DELETE) snprintf(out, outLen, "del");
+  else if (key == KEY_HOME) snprintf(out, outLen, "home");
+  else if (key == KEY_END) snprintf(out, outLen, "end");
+  else if (key == KEY_PAGE_UP) snprintf(out, outLen, "pgup");
+  else if (key == KEY_PAGE_DOWN) snprintf(out, outLen, "pgdn");
+  else if (key == KEY_PRTSC) snprintf(out, outLen, "prtsc");
+  else if (key == 0xCF) snprintf(out, outLen, "scrlk");
+  else if (key == 0xD0) snprintf(out, outLen, "pause");
+  else if (key == 0xDB) snprintf(out, outLen, "numlk");
+  else if (key == 0xED) snprintf(out, outLen, "menu");
+  else if (key == KEY_NUM_0) snprintf(out, outLen, "num0");
+  else if (key == KEY_NUM_1) snprintf(out, outLen, "num1");
+  else if (key == KEY_NUM_2) snprintf(out, outLen, "num2");
+  else if (key == KEY_NUM_3) snprintf(out, outLen, "num3");
+  else if (key == KEY_NUM_4) snprintf(out, outLen, "num4");
+  else if (key == KEY_NUM_5) snprintf(out, outLen, "num5");
+  else if (key == KEY_NUM_6) snprintf(out, outLen, "num6");
+  else if (key == KEY_NUM_7) snprintf(out, outLen, "num7");
+  else if (key == KEY_NUM_8) snprintf(out, outLen, "num8");
+  else if (key == KEY_NUM_9) snprintf(out, outLen, "num9");
+  else if (key == KEY_NUM_SLASH) snprintf(out, outLen, "num_slash");
+  else if (key == KEY_NUM_ASTERISK) snprintf(out, outLen, "num_asterisk");
+  else if (key == KEY_NUM_MINUS) snprintf(out, outLen, "num_minus");
+  else if (key == KEY_NUM_PLUS) snprintf(out, outLen, "num_plus");
+  else if (key == KEY_NUM_ENTER) snprintf(out, outLen, "num_enter");
+  else if (key == KEY_NUM_PERIOD) snprintf(out, outLen, "num_period");
   else if (key == KEY_F1) snprintf(out, outLen, "f1");
   else if (key == KEY_F2) snprintf(out, outLen, "f2");
   else if (key == KEY_F3) snprintf(out, outLen, "f3");
