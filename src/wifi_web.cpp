@@ -28,8 +28,16 @@ static const char* AP_SSID = "Cardputer-KB";
 // 开放热点：Windows 对 ESP SoftAP 的 WPA2 四次握手经常失败；配网 AP 开开放更稳
 // 真正家里网仍走 WPA2（网页/串口写入的 STA 凭据）
 
+// 异步扫网（同步 scan 会卡死 HTTP，且扫完重建 AP 会踢掉客户端）
+static uint8_t scanState = 0;  // 0 idle 1 running 2 done 3 error
+static uint32_t scanStartedAt = 0;
+static String scanCache = "[]";
+static const char* scanErr = "";
+
 static void ensureAp();
 static void startSta(const String& ssid, const String& pass);
+static void keepApBeacon();
+static void buildScanCache(int n);
 
 static String jsonEscape(const String& s) {
   String o;
@@ -521,7 +529,21 @@ function renderNets(list){const box=$('nets');if(!list?.length){box.innerHTML='<
   const arr=[...map.values()].sort((a,b)=>b.rssi-a.rssi);
   box.innerHTML=arr.map(n=>`<button type="button" class="net${n.name===selectedWifi?' on':''}" data-name="${n.name.replace(/"/g,'&quot;')}"><span>${n.name}</span><span class="m">${n.rssi}</span></button>`).join('');
   box.querySelectorAll('.net').forEach(el=>el.onclick=()=>{selectedWifi=el.dataset.name;showWifiPick();$('wifiPass').value='';$('wifiPass').focus();renderNets(arr)})}
-$('scanBtn').onclick=async()=>{const b=$('scanBtn');b.disabled=1;b.textContent='扫描中…';try{renderNets(await(await fetch('/api/scan')).json());toast('完成')}catch(e){toast('失败',1)}b.disabled=0;b.textContent='扫描附近 WiFi'};
+$('scanBtn').onclick=async()=>{
+  const b=$('scanBtn');b.disabled=1;b.textContent='扫描中…';
+  try{
+    await fetch('/api/scan?go=1');
+    let ok=false;
+    for(let i=0;i<50;i++){
+      await new Promise(r=>setTimeout(r,400));
+      const d=await(await fetch('/api/scan')).json();
+      if(d.status==='done'){renderNets(d.nets||[]);toast((d.nets&&d.nets.length)?'完成':'未扫到');ok=true;break}
+      if(d.status==='error'){toast(d.msg||'扫描失败',1);ok=true;break}
+    }
+    if(!ok)toast('扫描超时',1);
+  }catch(e){toast('扫描失败',1)}
+  b.disabled=0;b.textContent='扫描附近 WiFi';
+};
 $('saveBtn').onclick=async()=>{const b=$('saveBtn');b.disabled=1;b.textContent='保存中…';
   const pass=$('wifiPass')?$('wifiPass').value:'';
   // 未改密码时不要带空 pass 去覆盖；仅在选了网且填了密码、或换了 SSID 时带 wifi 字段
@@ -577,34 +599,122 @@ static void handleStatus() {
   server.send(200, "application/json", json);
 }
 
-static void handleScan() {
-  // 扫描需要 STA 射频；扫完立刻回到纯 AP，避免 Windows 卡在 AP+STA
-  const bool backToAp = apMode && WiFi.status() != WL_CONNECTED;
-  if (WiFi.getMode() != WIFI_AP_STA && WiFi.getMode() != WIFI_STA) {
-    WiFi.mode(WIFI_AP_STA);
-    delay(40);
-  } else if (WiFi.getMode() == WIFI_STA) {
-    WiFi.mode(WIFI_AP_STA);
-    delay(20);
+static void keepApBeacon() {
+  // 切到 AP_STA 后重新挂上开放 AP，尽量不走 softAPdisconnect，避免踢掉已连客户端
+  IPAddress ip(192, 168, 4, 1);
+  IPAddress gw(192, 168, 4, 1);
+  IPAddress mask(255, 255, 255, 0);
+  WiFi.softAPConfig(ip, gw, mask);
+  WiFi.softAP(AP_SSID, nullptr, 1, 0, 4);
+  wifi_config_t cfg{};
+  if (esp_wifi_get_config(WIFI_IF_AP, &cfg) == ESP_OK) {
+    cfg.ap.authmode = WIFI_AUTH_OPEN;
+    cfg.ap.password[0] = 0;
+    cfg.ap.ssid_hidden = 0;
+    cfg.ap.max_connection = 4;
+    esp_wifi_set_config(WIFI_IF_AP, &cfg);
   }
-  int n = WiFi.scanNetworks(false, false);
-  String json = "[";
+  apMode = true;
+  snprintf(apSsidShown, sizeof(apSsidShown), "%s", AP_SSID);
+  if (WiFi.status() != WL_CONNECTED) {
+    snprintf(ipStr, sizeof(ipStr), "%s", WiFi.softAPIP().toString().c_str());
+  }
+}
+
+static void buildScanCache(int n) {
+  scanCache = "[";
   bool first = true;
   for (int i = 0; i < n; i++) {
     String name = WiFi.SSID(i);
     if (!name.length()) continue;
-    if (!first) json += ",";
+    if (!first) scanCache += ",";
     first = false;
-    json += "{\"name\":\"" + jsonEscape(name) + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
+    scanCache += "{\"name\":\"" + jsonEscape(name) + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
   }
-  json += "]";
+  scanCache += "]";
+}
+
+static void finishScanIfReady() {
+  if (scanState != 1) return;
+  int n = WiFi.scanComplete();
+  if (n == WIFI_SCAN_RUNNING) {
+    if (millis() - scanStartedAt > 25000) {
+      WiFi.scanDelete();
+      scanState = 3;
+      scanErr = "timeout";
+      Serial.println("[wifi] scan timeout");
+    }
+    return;
+  }
+  if (n < 0) {
+    WiFi.scanDelete();
+    scanState = 3;
+    scanErr = "fail";
+    Serial.printf("[wifi] scan fail %d\n", n);
+    return;
+  }
+  buildScanCache(n);
   WiFi.scanDelete();
-  if (backToAp && WiFi.status() != WL_CONNECTED) {
-    WiFi.mode(WIFI_AP);
-    delay(30);
-    ensureAp();
+  scanState = 2;
+  Serial.printf("[wifi] scan done %d aps\n", n);
+}
+
+static void handleScan() {
+  finishScanIfReady();
+
+  // ?go=1 启动异步扫描；否则轮询状态
+  if (server.hasArg("go")) {
+    if (scanState == 1) {
+      server.send(200, "application/json", "{\"status\":\"scanning\"}");
+      return;
+    }
+    // 需要 STA 射频扫网：切 AP_STA，但保持开放 AP beacon
+    wifi_mode_t mode = WiFi.getMode();
+    if (mode == WIFI_AP) {
+      WiFi.mode(WIFI_AP_STA);
+      delay(80);
+      keepApBeacon();
+      delay(40);
+    } else if (mode == WIFI_STA) {
+      WiFi.mode(WIFI_AP_STA);
+      delay(40);
+      if (apMode) keepApBeacon();
+    }
+
+    WiFi.scanDelete();
+    int r = WiFi.scanNetworks(/*async=*/true, /*hidden=*/false);
+    if (r == WIFI_SCAN_FAILED) {
+      scanState = 3;
+      scanErr = "start fail";
+      server.send(200, "application/json", "{\"status\":\"error\",\"msg\":\"start fail\"}");
+      Serial.println("[wifi] scan start fail");
+      return;
+    }
+    scanState = 1;
+    scanStartedAt = millis();
+    scanErr = "";
+    Serial.println("[wifi] scan async start");
+    server.send(200, "application/json", "{\"status\":\"scanning\"}");
+    return;
   }
-  server.send(200, "application/json", json);
+
+  if (scanState == 1) {
+    server.send(200, "application/json", "{\"status\":\"scanning\"}");
+    return;
+  }
+  if (scanState == 2) {
+    String body = "{\"status\":\"done\",\"nets\":" + scanCache + "}";
+    scanState = 0;
+    server.send(200, "application/json", body);
+    return;
+  }
+  if (scanState == 3) {
+    String body = String("{\"status\":\"error\",\"msg\":\"") + scanErr + "\"}";
+    scanState = 0;
+    server.send(200, "application/json", body);
+    return;
+  }
+  server.send(200, "application/json", "{\"status\":\"idle\",\"nets\":[]}");
 }
 
 static void handleSave() {
@@ -812,6 +922,7 @@ void wifiWebBegin() {
 
 void wifiWebLoop() {
   if (!wifiStarted) return;
+  finishScanIfReady();
   server.handleClient();
 
   if (WiFi.status() == WL_CONNECTED) {
