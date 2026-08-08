@@ -521,10 +521,15 @@ function renderNets(list){const box=$('nets');if(!list?.length){box.innerHTML='<
   box.querySelectorAll('.net').forEach(el=>el.onclick=()=>{selectedWifi=el.dataset.name;showWifiPick();$('wifiPass').value='';$('wifiPass').focus();renderNets(arr)})}
 $('scanBtn').onclick=async()=>{const b=$('scanBtn');b.disabled=1;b.textContent='扫描中…';try{renderNets(await(await fetch('/api/scan')).json());toast('完成')}catch(e){toast('失败',1)}b.disabled=0;b.textContent='扫描附近 WiFi'};
 $('saveBtn').onclick=async()=>{const b=$('saveBtn');b.disabled=1;b.textContent='保存中…';
-  const wifi_name=selectedWifi||'';
   const pass=$('wifiPass')?$('wifiPass').value:'';
-  try{const j=await(await fetch('/api/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({wifi_name,pass,platform,passthrough:passThrough,remaps_mac:remapsMac,remaps_win:remapsWin})})).json();
-    toast(j.ok?(j.msg||'已保存 Mac+Win'):(j.msg||'失败'),!j.ok);if(j.ip)$('ip').textContent=j.ip;if(j.ok)loadStatus(true)}catch(e){toast('保存失败',1)}b.disabled=0;b.textContent='保存并应用'};
+  // 未改密码时不要带空 pass 去覆盖；仅在选了网且填了密码、或换了 SSID 时带 wifi 字段
+  const body={platform,passthrough:passThrough,remaps_mac:remapsMac,remaps_win:remapsWin};
+  if(selectedWifi){
+    body.wifi_name=selectedWifi;
+    if(pass)body.pass=pass;
+  }
+  try{const j=await(await fetch('/api/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+    toast(j.ok?(j.msg||'已保存 Mac+Win'):(j.msg||'失败'),!j.ok);if(j.ip)$('ip').textContent=j.ip;if(j.ok){if($('wifiPass'))$('wifiPass').value='';loadStatus(true)}}catch(e){toast('保存失败',1)}b.disabled=0;b.textContent='保存并应用'};
 $('otaPickBtn').onclick=()=>$('otaFile').click();
 $('otaFile').onchange=()=>{const f=$('otaFile').files[0];$('otaFileName').textContent=f?f.name:'未选择文件'};
 $('otaBtn').onclick=async()=>{const f=$('otaFile').files[0];if(!f){toast('选 .bin',1);return}const b=$('otaBtn');b.disabled=1;b.textContent='上传中…';$('otaMsg').textContent='写入中…';
@@ -601,9 +606,25 @@ static void handleSave() {
   platform = plat;
   prefs.putUChar("plat", platform);
 
+  // 仅在真正改网时写凭据/重连。网页保存映射时常带已选 SSID、密码框为空，
+  // 旧逻辑会把密码覆盖成空并 disconnect → 看起来像「一保存 WiFi 就断」。
+  const String savedSsid = prefs.getString("wifi_ssid", "");
+  const String savedPass = prefs.getString("wifi_pass", "");
+  bool wifiChanged = false;
   if (ssid.length()) {
-    prefs.putString("wifi_ssid", ssid);
-    prefs.putString("wifi_pass", pass);
+    if (pass.length()) {
+      if (ssid != savedSsid || pass != savedPass) {
+        prefs.putString("wifi_ssid", ssid);
+        prefs.putString("wifi_pass", pass);
+        wifiChanged = true;
+      }
+    } else if (ssid != savedSsid) {
+      // 换了 SSID 且未填密码（开放网络或稍后输入）
+      prefs.putString("wifi_ssid", ssid);
+      prefs.putString("wifi_pass", "");
+      wifiChanged = true;
+    }
+    // 同 SSID + 空密码：保留原密码，不重连
   }
 
   remapsSetPassThrough(doc["passthrough"] | false);
@@ -632,16 +653,20 @@ static void handleSave() {
   server.send(200, "application/json",
               "{\"ok\":true,\"msg\":\"已保存 Mac+Win\",\"ip\":\"" + jsonEscape(String(ipStr)) + "\"}");
 
-  if (ssid.length()) {
+  if (wifiChanged) {
+    String useSsid = prefs.getString("wifi_ssid", "");
+    String usePass = prefs.getString("wifi_pass", "");
     WiFi.disconnect(false);
     delay(80);
     WiFi.mode(WIFI_AP_STA);
     delay(50);
     ensureAp();
-    WiFi.begin(ssid.c_str(), pass.c_str());
+    WiFi.begin(useSsid.c_str(), usePass.c_str());
     staTrying = true;
     lastWifiTry = millis();
-    Serial.printf("[wifi] saved, STA try '%s'\n", ssid.c_str());
+    Serial.printf("[wifi] creds changed, STA try '%s'\n", useSsid.c_str());
+  } else {
+    Serial.println("[wifi] save remaps only (STA untouched)");
   }
 }
 
