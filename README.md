@@ -8,16 +8,22 @@
 
 1. 烧录固件（见下方）
 2. 电脑蓝牙搜索并配对 **Cardputer KB**
-3. **开机默认纯 AP**（不自动连家里网）：
-   - SSID：`Cardputer-KB`
-   - 密码：`cardputerkb`
+3. **开机默认开放热点**（无密码，Windows 更稳）：
+   - SSID：`Cardputer-KB`（OPEN）
    - 打开 [http://192.168.4.1](http://192.168.4.1)
 4. 在网页「WiFi」页扫描并加入网络（**只能从扫描列表选，不能手输 SSID**）
-5. 连上后 AP 关闭，用局域网 IP 访问；失败则回到纯 AP
+5. 连上后 AP 关闭，用局域网 IP 访问；失败则回到开放 AP
 6. 「键盘」页添加映射 → 底部 **保存并应用**（Mac / Windows 两套一起保存）
 
-重置 WiFi：设备上按 **Opt+W**，再连回 `Cardputer-KB`。  
-重启后也会回到配置热点；家里网凭据仍在，需在网页再保存/连接一次。
+**Windows 连不上热点时**（ESP SoftAP + WPA 常见坑）：用 USB 串口 115200：
+
+```text
+wifi 你家SSID 你家密码
+wifi clear
+```
+
+重置 WiFi：设备上按 **Opt+W**，或串口 `wifi clear`。  
+重启后回到开放配置热点；家里网凭据仍在，可用网页或串口再连。
 
 ## 本地保留键
 
@@ -85,7 +91,9 @@ pio run -e cardputer-adv -t upload --upload-port "$P"
 | `platform` / `platform mac` / `platform win` | 手动切平台 |
 | `keymap` | 10 秒内串口打印物理按键调试信息 |
 | `repair` | 同 Opt+R |
-| `clear` | 清空**当前平台**映射并保存 |
+| `wifi <ssid> [pass]` | 串口写入家里网并连接（Win 连不上 AP 时用这个） |
+| `wifi clear` | 同 Opt+W，回开放配置热点 |
+| `wifi` | 显示当前 WiFi 状态 |
 
 ## 硬件与限制
 

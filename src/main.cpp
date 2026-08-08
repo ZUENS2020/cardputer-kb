@@ -136,7 +136,7 @@ static void drawUI() {
     cv.drawString("Opt+P/R/W  Aa+` launcher", 6, 118);
   } else if (wifiWebApMode()) {
     cv.setTextColor(TFT_CYAN, TFT_BLACK);
-    cv.drawString(String("AP ") + wifiWebApSsid(), 6, 102);
+    cv.drawString(String("AP ") + wifiWebApSsid() + " OPEN", 6, 102);
     cv.drawString(String("http://") + wifiWebIpString(), 6, 116);
   } else {
     cv.setTextColor(0xAD55, TFT_BLACK);
@@ -211,8 +211,32 @@ static void handleCommand(String line) {
     remapsSavePlatform(platform);
     dirty = true;
     Serial.println("[clear] remaps cleared");
+  } else if (line.startsWith("wifi")) {
+    String rest = line.substring(4);
+    rest.trim();
+    if (!rest.length() || rest == "status") {
+      Serial.printf("[wifi] mode=%s ip=%s ssid=%s\n",
+                    wifiWebConnected() ? "STA" : (wifiWebApMode() ? "AP-OPEN" : "down"),
+                    wifiWebIpString(),
+                    prefs.getString("wifi_ssid", "").c_str());
+    } else if (rest == "clear" || rest == "reset") {
+      wifiWebResetNetwork();
+      Serial.println("[wifi] cleared -> OPEN AP");
+    } else {
+      // wifi <ssid> <password...> ；开放网可只写 ssid
+      int sp = rest.indexOf(' ');
+      String ssid = (sp < 0) ? rest : rest.substring(0, sp);
+      String pass = (sp < 0) ? "" : rest.substring(sp + 1);
+      ssid.trim();
+      pass.trim();
+      if (!ssid.length()) {
+        Serial.println("[wifi] usage: wifi <ssid> [password] | wifi clear");
+      } else if (wifiWebConnectHome(ssid.c_str(), pass.c_str())) {
+        Serial.printf("[wifi] connecting '%s'...\n", ssid.c_str());
+      }
+    }
   } else {
-    Serial.println("[?] status|platform|keymap|repair|clear");
+    Serial.println("[?] status|platform|keymap|repair|clear|wifi");
   }
 }
 

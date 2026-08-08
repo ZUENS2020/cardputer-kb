@@ -25,7 +25,8 @@ static bool otaOK = false;
 static bool staTrying = false;
 static char apSsidShown[24] = "Cardputer-KB";
 static const char* AP_SSID = "Cardputer-KB";
-static const char* AP_PASS = "cardputerkb";
+// 开放热点：Windows 对 ESP SoftAP 的 WPA2 四次握手经常失败；配网 AP 开开放更稳
+// 真正家里网仍走 WPA2（网页/串口写入的 STA 凭据）
 
 static void ensureAp();
 static void startSta(const String& ssid, const String& pass);
@@ -217,7 +218,7 @@ code{font-family:var(--font-mono);font-size:13px;color:var(--green-soft)}
 <section class="panel on" id="tab-wifi">
   <div class="card">
     <h2>连网</h2>
-    <p class="hint" style="margin-top:0">只能从扫描结果里选，不支持手输名称。</p>
+    <p class="hint" style="margin-top:0">只能从扫描结果里选，不支持手输名称。<br>配置热点 <code>Cardputer-KB</code> 为<strong>开放网络</strong>（无密码）。若 Windows 仍连不上，用 USB 串口：<code>wifi 你家SSID 密码</code>。</p>
     <button type="button" class="btn btn-surface full" id="scanBtn">扫描附近 WiFi</button>
     <div class="nets" id="nets"><div class="hint" style="text-align:center;padding:12px">点上方扫描</div></div>
     <div id="wifiPick" style="display:none;margin-top:12px">
@@ -714,7 +715,7 @@ static void handleOtaUpload() {
 }
 
 static void ensureAp() {
-  // 配置热点一律纯 AP（不要 AP+STA），Windows 对 AP+STA 关联经常失败
+  // 纯 AP + 开放认证 + 仅 11b/g：对 Windows 最稳（避开 WPA2 SoftAP 握手坑）
   WiFi.softAPdisconnect(true);
   delay(20);
   WiFi.disconnect(false);
@@ -722,18 +723,29 @@ static void ensureAp() {
   WiFi.mode(WIFI_AP);
   delay(50);
 
+  wifi_country_t country = {};
+  strncpy(country.cc, "CN", sizeof(country.cc));
+  country.schan = 1;
+  country.nchan = 13;
+  country.max_tx_power = 84;
+  country.policy = WIFI_COUNTRY_POLICY_MANUAL;
+  esp_wifi_set_country(&country);
+  esp_wifi_set_protocol(WIFI_IF_AP, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G);
+
   IPAddress ip(192, 168, 4, 1);
   IPAddress gw(192, 168, 4, 1);
   IPAddress mask(255, 255, 255, 0);
   WiFi.softAPConfig(ip, gw, mask);
-  bool ok = WiFi.softAP(AP_SSID, AP_PASS, 1, 0, 4);  // ch1 + WPA2
+  // nullptr = 开放网络（无密码）
+  bool ok = WiFi.softAP(AP_SSID, nullptr, 1, 0, 4);
 
   wifi_config_t cfg{};
   if (esp_wifi_get_config(WIFI_IF_AP, &cfg) == ESP_OK) {
-    cfg.ap.authmode = WIFI_AUTH_WPA2_PSK;
     cfg.ap.ssid_hidden = 0;
     cfg.ap.max_connection = 4;
     cfg.ap.beacon_interval = 100;
+    cfg.ap.authmode = WIFI_AUTH_OPEN;
+    cfg.ap.password[0] = 0;
     esp_wifi_set_config(WIFI_IF_AP, &cfg);
   }
 
@@ -742,7 +754,7 @@ static void ensureAp() {
   snprintf(apSsidShown, sizeof(apSsidShown), "%s", AP_SSID);
   snprintf(ipStr, sizeof(ipStr), "%s", WiFi.softAPIP().toString().c_str());
   dirty = true;
-  Serial.printf("[wifi] softAP %s ssid=%s ch=1 auth=WPA2 ip=%s mode=%d\n",
+  Serial.printf("[wifi] softAP %s ssid=%s OPEN ch=1 11bg ip=%s mode=%d\n",
                 ok ? "ok" : "FAIL", AP_SSID,
                 WiFi.softAPIP().toString().c_str(), (int)WiFi.getMode());
 }
@@ -785,7 +797,7 @@ void wifiWebBegin() {
   delay(50);
   ensureAp();
   staTrying = false;
-  Serial.printf("[wifi] default pure AP %s / %s\n", AP_SSID, AP_PASS);
+  Serial.printf("[wifi] default pure OPEN AP %s\n", AP_SSID);
 
   server.on("/", handleRoot);
   server.on("/api/status", handleStatus);
@@ -835,7 +847,16 @@ void wifiWebResetNetwork() {
   ensureAp();
   lastWifiTry = millis();
   dirty = true;
-  Serial.printf("[wifi] reset -> AP %s / %s\n", AP_SSID, AP_PASS);
+  Serial.printf("[wifi] reset -> OPEN AP %s\n", AP_SSID);
+}
+
+bool wifiWebConnectHome(const char* ssid, const char* pass) {
+  if (!ssid || !ssid[0]) return false;
+  prefs.putString("wifi_ssid", ssid);
+  prefs.putString("wifi_pass", pass ? pass : "");
+  startSta(String(ssid), String(pass ? pass : ""));
+  Serial.printf("[wifi] serial/home STA try '%s'\n", ssid);
+  return true;
 }
 
 bool wifiWebConnected() { return WiFi.status() == WL_CONNECTED; }
