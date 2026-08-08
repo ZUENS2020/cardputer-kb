@@ -130,7 +130,8 @@ h1{margin:0;font-family:var(--font-headline);font-size:20px;font-weight:800;lett
 .chip{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:4px 10px;border-radius:var(--r-full);border:1px solid var(--line);background:var(--bg-2);font-family:var(--font-label);font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-1)}
 .chip b{color:var(--fg-0);font-weight:700;text-transform:none;letter-spacing:0;font-family:var(--font-mono);font-size:12px}
 .dot{width:6px;height:6px;border-radius:50%;background:var(--fg-2)}.dot.on{background:var(--accent);box-shadow:0 0 0 3px rgba(0,105,65,.25)}.dot.warn{background:var(--zinc-500)}
-.tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--sp-2);margin-bottom:var(--sp-4)}
+.tabs{display:grid;grid-template-columns:repeat(2,1fr);gap:var(--sp-2);margin-bottom:var(--sp-4)}
+.chip.btn-lang{cursor:pointer;border-color:var(--accent);color:var(--fg-0)}
 .tabs button{min-height:44px;border-radius:var(--r-1);border:1px solid var(--line);background:var(--bg-1);color:var(--fg-1);font-family:var(--font-label);font-weight:700;font-size:12px;letter-spacing:.06em;text-transform:uppercase}
 .tabs button.on{background:rgba(0,105,65,.16);border-color:var(--accent);color:var(--fg-0)}
 .tabs button.hidden{display:none}
@@ -216,31 +217,32 @@ code{font-family:var(--font-mono);font-size:13px;color:var(--green-soft)}
 <div class="wrap">
 <div class="speed-line"></div>
 <header>
-  <div><h1>Cardputer Keyboard</h1><p class="sub">Suzuka · remap console</p></div>
+  <div><h1>Cardputer Keyboard</h1><p class="sub" data-i18n="sub">Suzuka · remap console</p></div>
   <div class="chips">
     <div class="chip"><span class="dot" id="wifiDot"></span>IP <b id="ip">…</b></div>
     <div class="chip"><span class="dot" id="bleDot"></span>BLE <b id="ble">…</b></div>
+    <button type="button" class="chip btn-lang" id="langBtn" title="Language">EN</button>
   </div>
 </header>
 <nav class="tabs" id="tabNav">
-  <button type="button" data-tab="keys" id="tabKeysBtn" class="on">键盘</button>
-  <button type="button" data-tab="ota">OTA</button>
+  <button type="button" data-tab="keys" id="tabKeysBtn" class="on" data-i18n="tabKeys">Keys</button>
+  <button type="button" data-tab="ota" data-i18n="tabOta">OTA</button>
 </nav>
 <section class="panel on" id="tab-keys">
   <div class="card">
-    <h2>平台</h2>
-    <p class="hint" style="margin-top:0">切换编辑 Mac / Windows 映射（一起保存）。带 <b>ADV</b> 标记的是设备当前平台（蓝牙探测或 Opt+P）。</p>
+    <h2 data-i18n="platTitle">Platform</h2>
+    <p class="hint" style="margin-top:0" data-i18n="platHint" data-i18n-html="1">Switch Mac / Windows maps (saved together). <b>ADV</b> marks the device platform (BLE detect or Opt+P).</p>
     <div class="seg" id="platSeg"><button type="button" data-p="0">Mac</button><button type="button" data-p="1">Windows</button></div>
   </div>
   <div class="card">
-    <h2>选择电脑端要发送的键</h2>
-    <p class="hint" style="margin-top:0">电脑端为 <b>108 键全尺寸</b>（主区 + 导航区 + 小键盘）。无控制键时只能选 1 个主键；有控制键时可多选。笔记本 <b>Fn</b> 不在 HID 里，请直接点 F / 媒体键。<br>小键盘点 <b>Num</b> 切换数字/导航层；先点 <b>Shift</b> 再点 Num、或 <b>双击 Num</b>，可选中 NumLk。</p>
+    <h2 data-i18n="pcTitle">PC keys to send</h2>
+    <p class="hint" style="margin-top:0" data-i18n="pcHint" data-i18n-html="1">Full-size <b>108-key</b> layout (main + nav + numpad). Without modifiers, pick only 1 key; with modifiers, multi-select OK. Laptop <b>Fn</b> is not in HID — tap F / media keys.<br>Numpad: tap <b>Num</b> to switch digit/nav layer; Shift+Num or <b>double-tap Num</b> selects NumLk.</p>
     <div class="combo-chips" id="pcChips"></div>
     <div class="preview">
-      <div style="flex:1;min-width:12rem"><div class="hint" style="margin:0">电脑将收到</div><div class="live" id="pcLive">（未选择）</div></div>
+      <div style="flex:1;min-width:12rem"><div class="hint" style="margin:0" data-i18n="pcWillRecv">PC will receive</div><div class="live" id="pcLive">—</div></div>
       <div class="actions">
-        <button type="button" class="btn btn-surface" id="pcClear" style="min-height:40px">清空</button>
-        <button type="button" class="btn btn-primary" id="nextAdv" style="min-height:40px" disabled>下一步：选 ADV</button>
+        <button type="button" class="btn btn-surface" id="pcClear" style="min-height:40px" data-i18n="clear">Clear</button>
+        <button type="button" class="btn btn-primary" id="nextAdv" style="min-height:40px" disabled data-i18n="nextAdv">Next: ADV</button>
       </div>
     </div>
     <div class="kb-shell">
@@ -249,14 +251,14 @@ code{font-family:var(--font-mono);font-size:13px;color:var(--green-soft)}
     </div>
   </div>
   <div class="card">
-    <h2>映射表</h2>
+    <h2 data-i18n="mapTitle">Remap table</h2>
     <div class="row grow" style="margin-bottom:10px">
-      <button type="button" class="btn btn-surface" id="clearAllBtn">清空当前平台映射</button>
+      <button type="button" class="btn btn-surface" id="clearAllBtn" data-i18n="clearPlat">Clear this platform</button>
     </div>
     <div class="tbl-wrap">
       <table class="map">
-        <thead><tr><th>#</th><th>ADV 触发</th><th class="arrow"></th><th>电脑发送</th><th></th></tr></thead>
-        <tbody id="mapBody"><tr><td colspan="5" class="hint" style="text-align:center">暂无映射</td></tr></tbody>
+        <thead><tr><th>#</th><th data-i18n="thAdv">ADV trigger</th><th class="arrow"></th><th data-i18n="thPc">PC send</th><th></th></tr></thead>
+        <tbody id="mapBody"><tr><td colspan="5" class="hint" style="text-align:center">—</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -264,14 +266,14 @@ code{font-family:var(--font-mono);font-size:13px;color:var(--green-soft)}
 
 <section class="panel" id="tab-ota">
   <div class="card">
-    <h2>固件 OTA</h2>
-    <p class="hint" style="margin-top:0">上传 <code>firmware.bin</code></p>
+    <h2 data-i18n="otaTitle">Firmware OTA</h2>
+    <p class="hint" style="margin-top:0" data-i18n="otaHint" data-i18n-html="1">Upload <code>firmware.bin</code></p>
     <div class="file-pick">
       <input type="file" id="otaFile" accept=".bin">
-      <button type="button" class="btn btn-surface" id="otaPickBtn">选择文件</button>
-      <span class="file-name" id="otaFileName">未选择文件</span>
+      <button type="button" class="btn btn-surface" id="otaPickBtn" data-i18n="pickFile">Choose file</button>
+      <span class="file-name" id="otaFileName" data-i18n="noFile">No file</span>
     </div>
-    <button type="button" class="btn btn-primary full" id="otaBtn">开始升级</button>
+    <button type="button" class="btn btn-primary full" id="otaBtn" data-i18n="otaStart">Start OTA</button>
     <p class="hint" id="otaMsg"></p>
   </div>
 </section>
@@ -280,28 +282,89 @@ code{font-family:var(--font-mono);font-size:13px;color:var(--green-soft)}
 
 <div class="mask" id="advMask">
   <div class="modal" onclick="event.stopPropagation()">
-    <h3>选择 ADV 上的触发组合</h3>
-    <p class="hint" style="margin-top:0">电脑端：<b id="modalPc">—</b><br>同样规则：无控制键只能 1 键；有控制键不限个数。</p>
+    <h3 data-i18n="advModalTitle">Pick ADV trigger</h3>
+    <p class="hint" style="margin-top:0" data-i18n="advModalHint" data-i18n-html="1">PC side: <b id="modalPc">—</b><br>Same rules: 1 key without mods; unlimited with mods.</p>
     <div class="combo-chips" id="advChips"></div>
     <div class="preview" style="margin-top:8px">
-      <div><div class="hint" style="margin:0">ADV 触发</div><div class="live" id="advLive">（未选择）</div></div>
-      <button type="button" class="btn btn-surface" id="advClear" style="min-height:40px">清空</button>
+      <div><div class="hint" style="margin:0" data-i18n="advTrigger">ADV trigger</div><div class="live" id="advLive">—</div></div>
+      <button type="button" class="btn btn-surface" id="advClear" style="min-height:40px" data-i18n="clear">Clear</button>
     </div>
     <div class="ckb" id="advKb"></div>
     <div class="modal-actions">
-      <button type="button" class="btn btn-surface" id="modalClose">取消</button>
-      <button type="button" class="btn btn-primary" id="addMap" disabled>加入映射表</button>
+      <button type="button" class="btn btn-surface" id="modalClose" data-i18n="cancel">Cancel</button>
+      <button type="button" class="btn btn-primary" id="addMap" disabled data-i18n="addMap">Add to table</button>
     </div>
   </div>
 </div>
 
-<div class="dock"><div class="inner"><button type="button" class="btn btn-primary" id="saveBtn">保存并应用</button></div></div>
+<div class="dock"><div class="inner"><button type="button" class="btn btn-primary" id="saveBtn" data-i18n="saveApply">Save &amp; apply</button></div></div>
 <div class="toast" id="toast"></div>
 <script>
 const $=id=>document.getElementById(id);
 let platform=0, advPlatform=0, remapsMac=[], remapsWin=[];
 let pc={mods:[],keys:[]}, adv={mods:[],keys:[]};
-let numLockOn=true; // 小键盘两种状态：ON=数字 / OFF=导航
+let numLockOn=true;
+const I18N={
+en:{
+  sub:'Suzuka · remap console',tabKeys:'Keys',tabOta:'OTA',
+  platTitle:'Platform',platHint:'Switch Mac / Windows maps (saved together). <b>ADV</b> marks the device platform (BLE detect or Opt+P).',
+  pcTitle:'PC keys to send',pcHint:'Full-size <b>108-key</b> layout (main + nav + numpad). Without modifiers, pick only 1 key; with modifiers, multi-select OK. Laptop <b>Fn</b> is not in HID — tap F / media keys.<br>Numpad: tap <b>Num</b> to switch digit/nav layer; Shift+Num or <b>double-tap Num</b> selects NumLk.',
+  pcWillRecv:'PC will receive',clear:'Clear',nextAdv:'Next: ADV',
+  mapTitle:'Remap table',clearPlat:'Clear this platform',thAdv:'ADV trigger',thPc:'PC send',
+  otaTitle:'Firmware OTA',otaHint:'Upload <code>firmware.bin</code>',pickFile:'Choose file',noFile:'No file',otaStart:'Start OTA',
+  advModalTitle:'Pick ADV trigger',advModalHint:'PC side: <b id="modalPc">—</b><br>Same rules: 1 key without mods; unlimited with mods.',
+  advTrigger:'ADV trigger',cancel:'Cancel',addMap:'Add to table',saveApply:'Save & apply',saving:'Saving…',
+  none:'(none)',pcHintChip:'Tap keys to build PC combo',advHintChip:'Tap ADV keys to build trigger',
+  mediaSys:'Media / system',bleOn:'Connected',bleOff:'Disconnected',
+  editAdvPlat:'Editing ADV platform: ',editPlat:'Editing ',editPlatSuf:' maps',
+  onlyOneKey:'Without mods, pick only 1 key',numDigit:'Numpad: digits',numNav:'Numpad: nav',
+  pickPcFirst:'Pick the PC combo first',bothIncomplete:'Both sides incomplete',
+  advDup:'ADV trigger already exists',added:'Added to ',addedSuf:' maps — remember to save',
+  emptyMap:': no maps — unmapped keys blocked',
+  del:'Delete',clearConfirm:'Clear maps for this platform?',cleared:'Cleared — remember to save',
+  saved:'Saved',failed:'Failed',saveFail:'Save failed',statusFail:'Cannot read status',
+  pickBin:'Pick a .bin',uploading:'Uploading…',writing:'Writing…',otaOk:'OK, rebooting…',otaOkToast:'OTA OK',otaFail:'OTA failed'
+},
+zh:{
+  sub:'铃鹿 · 重映射控制台',tabKeys:'键盘',tabOta:'OTA',
+  platTitle:'平台',platHint:'切换编辑 Mac / Windows 映射（一起保存）。带 <b>ADV</b> 标记的是设备当前平台（蓝牙探测或 Opt+P）。',
+  pcTitle:'选择电脑端要发送的键',pcHint:'电脑端为 <b>108 键全尺寸</b>（主区 + 导航区 + 小键盘）。无控制键时只能选 1 个主键；有控制键时可多选。笔记本 <b>Fn</b> 不在 HID 里，请直接点 F / 媒体键。<br>小键盘点 <b>Num</b> 切换数字/导航层；先点 <b>Shift</b> 再点 Num、或 <b>双击 Num</b>，可选中 NumLk。',
+  pcWillRecv:'电脑将收到',clear:'清空',nextAdv:'下一步：选 ADV',
+  mapTitle:'映射表',clearPlat:'清空当前平台映射',thAdv:'ADV 触发',thPc:'电脑发送',
+  otaTitle:'固件 OTA',otaHint:'上传 <code>firmware.bin</code>',pickFile:'选择文件',noFile:'未选择文件',otaStart:'开始升级',
+  advModalTitle:'选择 ADV 上的触发组合',advModalHint:'电脑端：<b id="modalPc">—</b><br>同样规则：无控制键只能 1 键；有控制键不限个数。',
+  advTrigger:'ADV 触发',cancel:'取消',addMap:'加入映射表',saveApply:'保存并应用',saving:'保存中…',
+  none:'（未选择）',pcHintChip:'点按键组成电脑端组合',advHintChip:'点 ADV 键组成触发组合',
+  mediaSys:'媒体 / 系统',bleOn:'已连接',bleOff:'未连接',
+  editAdvPlat:'正在编辑 ADV 当前平台：',editPlat:'正在编辑 ',editPlatSuf:' 映射',
+  onlyOneKey:'无控制键时只能选 1 个主键',numDigit:'小键盘：数字层',numNav:'小键盘：导航层',
+  pickPcFirst:'请先选好电脑端组合',bothIncomplete:'两侧组合不完整',
+  advDup:'ADV 触发组合与已有映射完全相同',added:'已加入',addedSuf:'映射表（记得保存）',
+  emptyMap:'：暂无映射 — 未映射键屏蔽',
+  del:'删除',clearConfirm:'清空当前平台映射？',cleared:'已清空当前平台（记得保存）',
+  saved:'已保存',failed:'失败',saveFail:'保存失败',statusFail:'无法读取状态',
+  pickBin:'选 .bin',uploading:'上传中…',writing:'写入中…',otaOk:'成功，重启中…',otaOkToast:'OTA 成功',otaFail:'OTA 失败'
+}
+};
+let lang=(()=>{try{const s=localStorage.getItem('ckb_lang');if(s==='zh'||s==='en')return s}catch(e){}return (navigator.language||'').toLowerCase().startsWith('zh')?'zh':'en'})();
+function t(k){return (I18N[lang]&&I18N[lang][k])||I18N.en[k]||k}
+function applyI18n(){
+  document.documentElement.lang=lang==='zh'?'zh-CN':'en';
+  document.querySelectorAll('[data-i18n]').forEach(el=>{
+    const k=el.getAttribute('data-i18n');
+    const v=t(k);
+    if(el.getAttribute('data-i18n-html')==='1'){
+      const keep=el.querySelector('#modalPc');
+      const prev=keep?keep.textContent:null;
+      el.innerHTML=v;
+      if(keep&&prev!=null){const n=el.querySelector('#modalPc');if(n)n.textContent=prev}
+    }else el.textContent=v;
+  });
+  const lb=$('langBtn');if(lb)lb.textContent=lang==='zh'?'EN':'中文';
+  syncDock();updatePc();updateAdv();renderTable();renderPlat();
+  const fn=$('otaFile')&&$('otaFile').files&&$('otaFile').files[0];
+  if($('otaFileName')&&!fn)$('otaFileName').textContent=t('noFile');
+}
 const curRemaps=()=>platform?remapsWin:remapsMac;
 const mapRow=r=>({adv:{mods:r.adv?.mods||[],keys:r.adv?.keys||[]},pc:{mods:r.pc?.mods||[],keys:r.pc?.keys||[]}});
 const PC_MODS=new Set(['ctrl','shift','alt','gui','ralt','rctrl','rshift','rgui']);
@@ -325,7 +388,7 @@ const PC_MEDIA=[
 
 function empty(){return {mods:[],keys:[]}}
 function clone(c){return {mods:[...c.mods],keys:[...c.keys]}}
-function toast(m,err){const t=$('toast');t.textContent=m;t.className='toast show'+(err?' err':'');setTimeout(()=>t.classList.remove('show'),2400)}
+function toast(m,err){const tEl=$('toast');tEl.textContent=m;tEl.className='toast show'+(err?' err':'');setTimeout(()=>tEl.classList.remove('show'),2400)}
 function labPcMod(id){const x=LAB_PC[id];return x?(platform?x[1]:x[0]):id}
 function labKey(k,advSide){if(advSide&&LAB_ADV[k])return LAB_ADV[k];if(KEY_LAB[k])return KEY_LAB[k];return String(k).length===1?String(k).toUpperCase():k}
 function parts(c,advSide){
@@ -358,7 +421,7 @@ function toggle(c,id,isMod){
   }
   const i=c.keys.indexOf(id);
   if(i>=0){c.keys.splice(i,1);return}
-  if(!canToggleKey(c,id,false)){toast('无控制键时只能选 1 个主键',1);return}
+  if(!canToggleKey(c,id,false)){toast(t('onlyOneKey'),1);return}
   c.keys.push(id);
 }
 
@@ -383,10 +446,10 @@ function syncDock(){
   const dock=document.querySelector('.dock');
   const b=$('saveBtn');
   if(!dock||!b)return;
-  const t=activeTab();
-  if(t==='ota'){dock.style.display='none';return}
+  const tab=activeTab();
+  if(tab==='ota'){dock.style.display='none';return}
   dock.style.display='';
-  b.textContent='保存并应用';
+  b.textContent=t('saveApply');
 }
 function showTab(name){
   const b=document.querySelector(`.tabs button[data-tab="${name}"]`);
@@ -398,20 +461,20 @@ function renderPlat(){
     const p=Number(b.dataset.p);
     const name=p?'Windows':'Mac';
     b.classList.toggle('on',p===platform);
-    // ADV 当前平台打标记；默认选中也跟 ADV 走（见 applyStatus）
     b.textContent=p===advPlatform?(name+' · ADV'):name;
   });
 }
 document.querySelectorAll('#platSeg button').forEach(b=>b.onclick=()=>{
   platform=Number(b.dataset.p);
   renderPlat();renderPc();renderTable();
-  toast(platform===advPlatform?('正在编辑 ADV 当前平台：'+(platform?'Windows':'Mac')):('正在编辑 '+(platform?'Windows':'Mac')+' 映射'));
+  const name=platform?'Windows':'Mac';
+  toast(platform===advPlatform?(t('editAdvPlat')+name):(t('editPlat')+name+t('editPlatSuf')));
 });
 
 function updatePc(){
   const p=parts(pc,false);
-  $('pcLive').textContent=p.length?p.join(' + '):'（未选择）';
-  $('pcChips').innerHTML=p.map(x=>`<span>${x}</span>`).join('')||'<span style="opacity:.45;border-color:var(--border);background:transparent;color:var(--muted)">点按键组成电脑端组合</span>';
+  $('pcLive').textContent=p.length?p.join(' + '):t('none');
+  $('pcChips').innerHTML=p.map(x=>`<span>${x}</span>`).join('')||`<span style="opacity:.45;border-color:var(--border);background:transparent;color:var(--muted)">${t('pcHintChip')}</span>`;
   $('nextAdv').disabled=!valid(pc);
 }
 function bindPcKeys(root){
@@ -422,12 +485,11 @@ function bindPcKeys(root){
     el.onclick=e=>{
       const id=el.dataset.key;
       if(!id)return;
-      // NumLk：单击切换数字/导航层；物理 Shift 或已点选屏上 Shift/RShift，或双击 → 选中 NumLk
       if(id==='numlk'&&el.getAttribute('data-num-toggle')==='1'){
         const shiftHeld=!!(e.shiftKey||pc.mods.includes('shift')||pc.mods.includes('rshift'));
         if(shiftHeld){toggle(pc,'numlk',false);renderPc();updatePc();return}
         numLockOn=!numLockOn;
-        toast(numLockOn?'小键盘：数字层':'小键盘：导航层');
+        toast(numLockOn?t('numDigit'):t('numNav'));
         renderPc();updatePc();
         return;
       }
@@ -460,16 +522,14 @@ function renderPc(){
   const g=platform?1:0;
   const L=(k,l,u,mod)=>({k,l:l||KEY_LAB[k]||k,u,mod:!!mod});
   const G=(u)=>({gap:1,u:u||''});
-  // 媒体条
   const mkMedia=(k,l)=>{
     const on=pc.keys.includes(k);
     const dim=!on&&!canToggleKey(pc,k,false);
     return `<button type="button" class="k${on?' on':''}${dim?' dim':''}" data-key="${k}">${l}</button>`;
   };
-  $('pcMedia').innerHTML='<div class="hint">媒体 / 系统</div><div class="kr">'+PC_MEDIA.map(x=>mkMedia(x.k,x.l)).join('')+'</div>';
+  $('pcMedia').innerHTML='<div class="hint">'+t('mediaSys')+'</div><div class="kr">'+PC_MEDIA.map(x=>mkMedia(x.k,x.l)).join('')+'</div>';
   bindPcKeys($('pcMedia'));
 
-  // 108 键：主区 + 导航 + 小键盘
   const main=[
     [L('esc','Esc','u125'),G('u1'),L('f1','F1'),L('f2','F2'),L('f3','F3'),L('f4','F4'),G(),L('f5','F5'),L('f6','F6'),L('f7','F7'),L('f8','F8'),G(),L('f9','F9'),L('f10','F10'),L('f11','F11'),L('f12','F12')],
     [L('`','`'),L('1','1'),L('2','2'),L('3','3'),L('4','4'),L('5','5'),L('6','6'),L('7','7'),L('8','8'),L('9','9'),L('0','0'),L('-','-'),L('=','='),L('bksp','⌫','u2')],
@@ -486,7 +546,6 @@ function renderPc(){
     [G(),L('up','↑'),G()],
     [L('left','←'),L('down','↓'),L('right','→')]
   ];
-  // NumLk ON：数字层；OFF：导航层（与实体键盘一致）
   const numLkBtn=Object.assign(L('numlk',numLockOn?'Num*':'Num'),{numToggle:1,numLed:numLockOn});
   const numKeys=numLockOn?[
     numLkBtn,L('num_slash','/'),L('num_asterisk','*'),L('num_minus','-'),
@@ -517,9 +576,9 @@ $('pcClear').onclick=()=>{pc=empty();renderPc()};
 
 function updateAdv(){
   const p=parts(adv,true);
-  $('advLive').textContent=p.length?p.join(' + '):'（未选择）';
-  $('advChips').innerHTML=p.map(x=>`<span>${x}</span>`).join('')||'<span style="opacity:.45;border-color:var(--border);background:transparent;color:var(--muted)">点 ADV 键组成触发组合</span>';
-  $('addMap').disabled=!valid(adv);
+  if($('advLive'))$('advLive').textContent=p.length?p.join(' + '):t('none');
+  if($('advChips'))$('advChips').innerHTML=p.map(x=>`<span>${x}</span>`).join('')||`<span style="opacity:.45;border-color:var(--border);background:transparent;color:var(--muted)">${t('advHintChip')}</span>`;
+  if($('addMap'))$('addMap').disabled=!valid(adv);
 }
 function renderAdv(){
   $('advKb').innerHTML=ADV.map(row=>'<div class="cr">'+row.map(k=>{
@@ -535,7 +594,7 @@ function renderAdv(){
 $('advClear').onclick=()=>{adv=empty();renderAdv()};
 
 function openAdv(){
-  if(!valid(pc)){toast('请先选好电脑端组合',1);return}
+  if(!valid(pc)){toast(t('pickPcFirst'),1);return}
   adv=empty();
   $('modalPc').textContent=text(pc,false);
   renderAdv();
@@ -547,15 +606,15 @@ $('modalClose').onclick=closeAdv;
 $('advMask').onclick=e=>{if(e.target===$('advMask'))closeAdv()};
 
 function addMapping(){
-  if(!valid(pc)||!valid(adv)){toast('两侧组合不完整',1);return}
+  if(!valid(pc)||!valid(adv)){toast(t('bothIncomplete'),1);return}
   const a=clone(adv), p=clone(pc);
   const list=curRemaps();
-  if(list.some(r=>sig(r.adv)===sig(a))){toast('ADV 触发组合与已有映射完全相同',1);return}
+  if(list.some(r=>sig(r.adv)===sig(a))){toast(t('advDup'),1);return}
   list.push({adv:a,pc:p});
   closeAdv();
   pc=empty();adv=empty();
   renderPc();renderTable();
-  toast('已加入'+(platform?' Windows':' Mac')+'映射表（记得保存）');
+  toast(t('added')+(platform?' Windows':' Mac')+t('addedSuf'));
 }
 $('addMap').onclick=addMapping;
 
@@ -563,7 +622,7 @@ function renderTable(){
   const list=curRemaps();
   const tag=platform?'Windows':'Mac';
   if(!list.length){
-    $('mapBody').innerHTML=`<tr><td colspan="5" class="hint" style="text-align:center">${tag}：暂无映射 — 未映射键屏蔽</td></tr>`;
+    $('mapBody').innerHTML=`<tr><td colspan="5" class="hint" style="text-align:center">${tag}${t('emptyMap')}</td></tr>`;
     return;
   }
   $('mapBody').innerHTML=list.map((r,i)=>`<tr>
@@ -571,18 +630,17 @@ function renderTable(){
     <td><b>${text(r.adv,true)}</b></td>
     <td class="arrow">→</td>
     <td style="color:var(--accent)">${text(r.pc,false)}</td>
-    <td><button type="button" class="btn btn-g del" data-i="${i}">删除</button></td>
+    <td><button type="button" class="btn btn-g del" data-i="${i}">${t('del')}</button></td>
   </tr>`).join('');
   $('mapBody').querySelectorAll('.del').forEach(el=>el.onclick=()=>{curRemaps().splice(Number(el.dataset.i),1);renderTable()});
 }
-$('clearAllBtn').onclick=()=>{const list=curRemaps();if(!list.length||confirm('清空当前平台映射？')){if(platform)remapsWin=[];else remapsMac=[];renderTable();toast('已清空当前平台（记得保存）')}};
+$('clearAllBtn').onclick=()=>{const list=curRemaps();if(!list.length||confirm(t('clearConfirm'))){if(platform)remapsWin=[];else remapsMac=[];renderTable();toast(t('cleared'))}};
 
 function applyStatus(d,keepPlat){
   advPlatform=d.platform|0;
   if(!keepPlat)platform=advPlatform;
   renderPlat();
-  // 已取消全键透传：始终仅映射键
-  $('ip').textContent=d.ip||'—';$('ble').textContent=d.ble?'已连接':'未连接';
+  $('ip').textContent=d.ip||'—';$('ble').textContent=d.ble?t('bleOn'):t('bleOff');
   const sta=!!d.sta;
   $('wifiDot').className='dot'+(sta?' on':'');$('bleDot').className='dot'+(d.ble?' on':'');
   remapsMac=(d.remaps_mac||[]).map(mapRow);
@@ -592,35 +650,40 @@ function applyStatus(d,keepPlat){
 }
 async function loadStatus(keepPlat){const d=await(await fetch('/api/status')).json();applyStatus(d,!!keepPlat)}
 $('saveBtn').onclick=async()=>{
-  const b=$('saveBtn');b.disabled=1;b.textContent='保存中…';
+  const b=$('saveBtn');b.disabled=1;b.textContent=t('saving');
   const body={platform,passthrough:false,remaps_mac:remapsMac,remaps_win:remapsWin};
   try{
     const j=await(await fetch('/api/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
-    toast(j.ok?(j.msg||'已保存'):(j.msg||'失败'),!j.ok);
+    toast(j.ok?t('saved'):t('failed'),!j.ok);
     if(j.ip)$('ip').textContent=j.ip;
     if(j.ok){advPlatform=platform;renderPlat();loadStatus(true)}
-  }catch(e){toast('保存失败',1)}
+  }catch(e){toast(t('saveFail'),1)}
   b.disabled=0;syncDock();
 };
+$('langBtn').onclick=()=>{
+  lang=lang==='zh'?'en':'zh';
+  try{localStorage.setItem('ckb_lang',lang)}catch(e){}
+  applyI18n();
+};
 syncDock();
-// 轮询 ADV 平台（Opt+P / 自动探测），不打断当前正在编辑的另一套映射
 setInterval(async()=>{
   try{
     const d=await(await fetch('/api/status',{cache:'no-store'})).json();
     const p=d.platform|0;
     if(p!==advPlatform){advPlatform=p;renderPlat()}
     if(d.ip)$('ip').textContent=d.ip;
-    $('ble').textContent=d.ble?'已连接':'未连接';
+    $('ble').textContent=d.ble?t('bleOn'):t('bleOff');
     $('wifiDot').className='dot'+(d.sta?' on':'');
     $('bleDot').className='dot'+(d.ble?' on':'');
   }catch(e){}
 },2500);
 $('otaPickBtn').onclick=()=>$('otaFile').click();
-$('otaFile').onchange=()=>{const f=$('otaFile').files[0];$('otaFileName').textContent=f?f.name:'未选择文件'};
-$('otaBtn').onclick=async()=>{const f=$('otaFile').files[0];if(!f){toast('选 .bin',1);return}const b=$('otaBtn');b.disabled=1;b.textContent='上传中…';$('otaMsg').textContent='写入中…';
-  try{const fd=new FormData();fd.append('firmware',f);const t=await(await fetch('/api/ota',{method:'POST',body:fd})).text();let j;try{j=JSON.parse(t)}catch(e){j={ok:0,msg:t}}
-    if(j.ok){$('otaMsg').textContent='成功，重启中…';toast('OTA 成功')}else{$('otaMsg').textContent=j.msg||'失败';toast('OTA 失败',1)}}catch(e){toast('失败',1)}b.disabled=0;b.textContent='开始升级'};
-loadStatus(0).catch(()=>toast('无法读取状态',1));
+$('otaFile').onchange=()=>{const f=$('otaFile').files[0];$('otaFileName').textContent=f?f.name:t('noFile')};
+$('otaBtn').onclick=async()=>{const f=$('otaFile').files[0];if(!f){toast(t('pickBin'),1);return}const b=$('otaBtn');b.disabled=1;b.textContent=t('uploading');$('otaMsg').textContent=t('writing');
+  try{const fd=new FormData();fd.append('firmware',f);const txt=await(await fetch('/api/ota',{method:'POST',body:fd})).text();let j;try{j=JSON.parse(txt)}catch(e){j={ok:0,msg:txt}}
+    if(j.ok){$('otaMsg').textContent=t('otaOk');toast(t('otaOkToast'))}else{$('otaMsg').textContent=j.msg||t('failed');toast(t('otaFail'),1)}}catch(e){toast(t('failed'),1)}b.disabled=0;b.textContent=t('otaStart')};
+applyI18n();
+loadStatus(0).catch(()=>toast(t('statusFail'),1));
 </script></body></html>
 )HTML";
 
@@ -693,7 +756,7 @@ static void handleSave() {
   remapsSaveBoth();
   dirty = true;
   server.send(200, "application/json",
-              "{\"ok\":true,\"msg\":\"已保存 Mac+Win\",\"ip\":\"" + jsonEscape(String(ipStr)) + "\"}");
+              "{\"ok\":true,\"msg\":\"Saved Mac+Win\",\"ip\":\"" + jsonEscape(String(ipStr)) + "\"}");
   Serial.println("[wifi] save remaps only");
 }
 
