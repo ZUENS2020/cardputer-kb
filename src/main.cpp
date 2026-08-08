@@ -222,6 +222,8 @@ static void handleCommand(String line) {
     } else if (rest == "clear" || rest == "reset") {
       wifiWebResetNetwork();
       Serial.println("[wifi] cleared -> OPEN AP");
+    } else if (rest == "scan") {
+      wifiWebDiagScan();
     } else {
       // wifi <ssid> <password...> ；开放网可只写 ssid
       int sp = rest.indexOf(' ');

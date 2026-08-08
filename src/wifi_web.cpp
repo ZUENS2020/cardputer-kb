@@ -10,6 +10,7 @@
 #include <WebServer.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
+#include <esp_coexist.h>
 
 extern Preferences prefs;
 extern uint8_t platform;
@@ -634,6 +635,67 @@ static void buildScanCache(int n) {
   scanCache += "]";
 }
 
+static void prepareScanRadio() {
+  if (WiFi.getMode() != WIFI_AP_STA && WiFi.getMode() != WIFI_STA) {
+    WiFi.mode(WIFI_AP_STA);
+    delay(100);
+    keepApBeacon();
+    delay(80);
+  }
+  // 注意：BLE 开启时禁止 WIFI_PS_NONE / WiFi.setSleep(false)，会直接 abort：
+  // "Should enable WiFi modem sleep when both WiFi and Bluetooth are enabled"
+  esp_coex_preference_set(ESP_COEX_PREFER_WIFI);
+  esp_wifi_disconnect();
+  delay(80);
+  WiFi.scanDelete();
+  delay(40);
+}
+
+bool wifiWebStartScan() {
+  if (scanState == 1) return true;
+  prepareScanRadio();
+  int r = WiFi.scanNetworks(/*async=*/true, /*hidden=*/false);
+  if (r == WIFI_SCAN_FAILED) {
+    delay(250);
+    r = WiFi.scanNetworks(true, false);
+  }
+  if (r == WIFI_SCAN_FAILED) {
+    scanState = 3;
+    scanErr = "start fail";
+    esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
+    Serial.printf("[wifi] scan start fail mode=%d\n", (int)WiFi.getMode());
+    return false;
+  }
+  scanState = 1;
+  scanStartedAt = millis();
+  scanErr = "";
+  Serial.printf("[wifi] scan async start r=%d mode=%d\n", r, (int)WiFi.getMode());
+  return true;
+}
+
+void wifiWebDiagScan() {
+  Serial.printf("[wifi][diag] before mode=%d status=%d ap=%d\n",
+                (int)WiFi.getMode(), (int)WiFi.status(), apMode ? 1 : 0);
+  prepareScanRadio();
+  uint32_t t0 = millis();
+  // 同步扫：阻塞串口几秒，但能给出明确返回值
+  int n = WiFi.scanNetworks(/*async=*/false, /*hidden=*/false);
+  uint32_t dt = millis() - t0;
+  Serial.printf("[wifi][diag] scanNetworks -> %d in %ums mode=%d\n", n, dt, (int)WiFi.getMode());
+  if (n == WIFI_SCAN_FAILED) {
+    Serial.println("[wifi][diag] WIFI_SCAN_FAILED — 常见于 BLE 已连接时射频共存");
+  } else if (n == WIFI_SCAN_RUNNING) {
+    Serial.println("[wifi][diag] still RUNNING (unexpected for sync)");
+  } else if (n >= 0) {
+    for (int i = 0; i < n && i < 20; i++) {
+      Serial.printf("[wifi][diag]  %2d  rssi=%4d  %s\n", i, WiFi.RSSI(i), WiFi.SSID(i).c_str());
+    }
+    if (n > 20) Serial.printf("[wifi][diag]  ... +%d more\n", n - 20);
+    WiFi.scanDelete();
+  }
+  esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
+}
+
 static void finishScanIfReady() {
   if (scanState != 1) return;
   int n = WiFi.scanComplete();
@@ -642,6 +704,7 @@ static void finishScanIfReady() {
       WiFi.scanDelete();
       scanState = 3;
       scanErr = "timeout";
+      esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
       Serial.println("[wifi] scan timeout");
     }
     return;
@@ -650,54 +713,29 @@ static void finishScanIfReady() {
     WiFi.scanDelete();
     scanState = 3;
     scanErr = "fail";
-    Serial.printf("[wifi] scan fail %d\n", n);
+    esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
+    Serial.printf("[wifi] scan fail complete=%d\n", n);
     return;
   }
   buildScanCache(n);
   WiFi.scanDelete();
   scanState = 2;
+  esp_coex_preference_set(ESP_COEX_PREFER_BALANCE);
   Serial.printf("[wifi] scan done %d aps\n", n);
 }
 
 static void handleScan() {
   finishScanIfReady();
 
-  // ?go=1 启动异步扫描；否则轮询状态
   if (server.hasArg("go")) {
     if (scanState == 1) {
       server.send(200, "application/json", "{\"status\":\"scanning\"}");
       return;
     }
-    // 配网期已是 AP_STA，STA 口可直接扫；勿再切纯 AP
-    if (WiFi.getMode() != WIFI_AP_STA && WiFi.getMode() != WIFI_STA) {
-      WiFi.mode(WIFI_AP_STA);
-      delay(100);
-      keepApBeacon();
-      delay(80);
-    }
-
-    // 清掉残留 STA 关联，避免 scan 启动失败
-    esp_wifi_disconnect();
-    delay(50);
-    WiFi.scanDelete();
-    delay(30);
-
-    int r = WiFi.scanNetworks(/*async=*/true, /*hidden=*/false);
-    if (r == WIFI_SCAN_FAILED) {
-      delay(200);
-      r = WiFi.scanNetworks(true, false);
-    }
-    if (r == WIFI_SCAN_FAILED) {
-      scanState = 3;
-      scanErr = "start fail";
+    if (!wifiWebStartScan()) {
       server.send(200, "application/json", "{\"status\":\"error\",\"msg\":\"start fail\"}");
-      Serial.println("[wifi] scan start fail");
       return;
     }
-    scanState = 1;
-    scanStartedAt = millis();
-    scanErr = "";
-    Serial.printf("[wifi] scan async start (r=%d mode=%d)\n", r, (int)WiFi.getMode());
     server.send(200, "application/json", "{\"status\":\"scanning\"}");
     return;
   }
