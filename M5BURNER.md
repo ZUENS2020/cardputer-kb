@@ -4,7 +4,7 @@
 Firmware file: `cardputer-typeless-v1.0-merged.bin` (merged image, flash at **0x0**)
 
 设备 / Device: **M5Stack Cardputer ADV (ESP32-S3 / StampS3A)**
-名称 / Name: **Cardputer Voice**
+名称 / Name: **Cardputer KB**
 版本 / Version: **1.0**
 
 ---
@@ -21,7 +21,7 @@ Firmware file: `cardputer-typeless-v1.0-merged.bin` (merged image, flash at **0x
 - 方向键 / Esc / 空格 / 退格 直接转发
 - `Aa+P` 切 Mac/Windows · `Aa+R` 重新配对 · `Aa+\`` 返回 Launcher
 
-**用法**：蓝牙配对 “Cardputer Voice” → 在 Typeless 里把听写热键绑成对应平台默认键(Mac `⌃⌥\`、Win `Right Alt`)、模式设为点按切换 → 光标放文本框即可语音输入。烧录后按一下复位键启动。
+**用法**：蓝牙配对 “Cardputer KB” → 在网页配置重映射 / WiFi。烧录后按一下复位键启动。
 
 源码 / Source: https://github.com/ZUENS2020/cardputer-typeless
 
@@ -38,7 +38,7 @@ Turn the Cardputer ADV into a **BLE wireless keyboard remote**: one-tap trigger 
 - Arrows / Esc / Space / Backspace forwarded
 - `Aa+P` switch Mac/Windows · `Aa+R` re-pair · `Aa+\`` launcher
 
-**Setup**: pair Bluetooth "Cardputer Voice" → set the Typeless hotkey to the per-platform default (Mac `⌃⌥\`, Win `Right Alt`), tap-toggle mode → put the cursor in any text field and dictate. Press reset after flashing to boot.
+**Setup**: pair Bluetooth "Cardputer KB" → configure remaps / WiFi in the web UI. Press reset after flashing to boot.
 
 Source: https://github.com/ZUENS2020/cardputer-typeless
 

@@ -21,7 +21,7 @@
 #include "bindings.h"
 #include "wifi_web.h"
 
-BleKeyboard bleKeyboard("Cardputer Voice", "M5Stack", 100);
+BleKeyboard bleKeyboard("Cardputer KB", "M5Stack", 100);
 Preferences prefs;
 
 uint8_t platform = 0;
