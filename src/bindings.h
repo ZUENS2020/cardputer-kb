@@ -21,7 +21,7 @@ enum PhysKey : uint8_t {
   PK_SHIFT = 0x8D,  // Aa
 };
 
-// 组合：有修饰键时可带多枚主键；无修饰键时只能 1 枚主键
+// 组合：修饰键最多 4、主键最多 6；无修饰也可多选主键
 struct KeyCombo {
   uint8_t nmod;
   uint8_t mods[4];

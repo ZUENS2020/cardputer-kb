@@ -67,30 +67,39 @@ static bool prevEsc = false;
 static bool prevShiftBacktick = false;
 static bool prevOptP = false, prevOptR = false, prevOptW = false;
 static bool heldAscii[128] = {};
-static bool remapLatch[MAX_REMAPS] = {};
+static bool remapHeld[MAX_REMAPS] = {};
+static KeyCombo remapHeldPc[MAX_REMAPS] = {};
 
-static void sendComboPc(const KeyCombo& h) {
+static void pressComboPc(const KeyCombo& h) {
   if (!bleKeyboard.isConnected()) return;
   for (uint8_t i = 0; i < h.nmod; i++) {
     bleKeyboard.press(h.mods[i]);
-    delay(10);
   }
   for (uint8_t i = 0; i < h.nkey; i++) {
     uint8_t k = h.keys[i];
     if (hidIsMedia(k)) {
       uint8_t m[2] = {0, 0};
-      if (hidMediaReportBytes(k, m)) {
-        bleKeyboard.press(m);
-        delay(10);
-      }
+      if (hidMediaReportBytes(k, m)) bleKeyboard.press(m);
     } else {
       bleKeyboard.press(k);
-      delay(10);
     }
   }
-  delay(35);
-  bleKeyboard.releaseAll();
-  delay(10);
+}
+
+static void releaseComboPc(const KeyCombo& h) {
+  if (!bleKeyboard.isConnected()) return;
+  for (int i = (int)h.nkey - 1; i >= 0; i--) {
+    uint8_t k = h.keys[i];
+    if (hidIsMedia(k)) {
+      uint8_t m[2] = {0, 0};
+      if (hidMediaReportBytes(k, m)) bleKeyboard.release(m);
+    } else {
+      bleKeyboard.release(k);
+    }
+  }
+  for (int i = (int)h.nmod - 1; i >= 0; i--) {
+    bleKeyboard.release(h.mods[i]);
+  }
 }
 
 static void returnToLauncher() {
@@ -600,19 +609,27 @@ static void handleKeyboard() {
     if ((uint8_t)n < 128) st.ascii[(uint8_t)n] = true;
   }
 
-  // —— 组合映射：边沿触发 ——
+  // —— 组合映射：状态跟随 ADV（按下保持 / 松开释放，支持长按）——
   uint8_t nmap = remapCount(platform);
   for (uint8_t i = 0; i < nmap; i++) {
     const RemapEntry* r = remapAt(platform, i);
     if (!r) continue;
     bool down = comboMatchAdv(r->adv, st);
-    if (down && !remapLatch[i]) {
-      sendComboPc(r->pc);
-      remapLatch[i] = true;
+    if (down && !remapHeld[i]) {
+      pressComboPc(r->pc);
+      remapHeldPc[i] = r->pc;
+      remapHeld[i] = true;
+    } else if (!down && remapHeld[i]) {
+      releaseComboPc(remapHeldPc[i]);
+      remapHeld[i] = false;
     }
-    if (!down) remapLatch[i] = false;
   }
-  for (uint8_t i = nmap; i < MAX_REMAPS; i++) remapLatch[i] = false;
+  for (uint8_t i = nmap; i < MAX_REMAPS; i++) {
+    if (remapHeld[i]) {
+      releaseComboPc(remapHeldPc[i]);
+      remapHeld[i] = false;
+    }
+  }
 
   auto reserved = [&](uint8_t phys) { return physUsedInAnyTrigger(platform, phys); };
 
@@ -799,7 +816,7 @@ void loop() {
         platDetectAt = 0;
         platManualOverride = false;
         memset(heldAscii, 0, sizeof(heldAscii));
-        memset(remapLatch, 0, sizeof(remapLatch));
+        memset(remapHeld, 0, sizeof(remapHeld));
       }
     }
   }

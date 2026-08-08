@@ -85,9 +85,9 @@ static bool parseComboJson(JsonObject o, KeyCombo& c, bool advSide) {
       if (k && c.nkey < 6) c.keys[c.nkey++] = k;
     }
   }
-  // 规则：无修饰 → 必须恰好 1 键；有修饰 → 键数随意（含 0）
-  if (c.nmod == 0) return c.nkey == 1;
-  return c.nmod >= 1;
+  // 至少要有修饰或主键之一；主键最多 6
+  if (c.nmod == 0 && c.nkey == 0) return false;
+  return true;
 }
 
 static const char PAGE_HTML[] PROGMEM = R"HTML(<!DOCTYPE html>
@@ -236,7 +236,7 @@ code{font-family:var(--font-mono);font-size:13px;color:var(--green-soft)}
   </div>
   <div class="card">
     <h2 data-i18n="pcTitle">PC keys to send</h2>
-    <p class="hint" style="margin-top:0" data-i18n="pcHint" data-i18n-html="1">Full-size <b>108-key</b> layout (main + nav + numpad). Without modifiers, pick only 1 key; with modifiers, multi-select OK. Laptop <b>Fn</b> is not in HID — tap F / media keys.<br>Numpad: tap <b>Num</b> to switch digit/nav layer; Shift+Num or <b>double-tap Num</b> selects NumLk.</p>
+    <p class="hint" style="margin-top:0" data-i18n="pcHint" data-i18n-html="1">Full-size <b>108-key</b> layout (main + nav + numpad). Pick modifiers and/or up to 6 keys. Hold on ADV keeps PC keys held (long-press). Laptop <b>Fn</b> is not in HID — tap F / media keys.<br>Numpad: tap <b>Num</b> to switch digit/nav layer; Shift+Num or <b>double-tap Num</b> selects NumLk.</p>
     <div class="combo-chips" id="pcChips"></div>
     <div class="preview">
       <div style="flex:1;min-width:12rem"><div class="hint" style="margin:0" data-i18n="pcWillRecv">PC will receive</div><div class="live" id="pcLive">—</div></div>
@@ -283,7 +283,7 @@ code{font-family:var(--font-mono);font-size:13px;color:var(--green-soft)}
 <div class="mask" id="advMask">
   <div class="modal" onclick="event.stopPropagation()">
     <h3 data-i18n="advModalTitle">Pick ADV trigger</h3>
-    <p class="hint" style="margin-top:0" data-i18n="advModalHint" data-i18n-html="1">PC side: <b id="modalPc">—</b><br>Same rules: 1 key without mods; unlimited with mods.</p>
+    <p class="hint" style="margin-top:0" data-i18n="advModalHint" data-i18n-html="1">PC side: <b id="modalPc">—</b><br>Same rules: modifiers and/or up to 6 keys. Hold follows ADV.</p>
     <div class="combo-chips" id="advChips"></div>
     <div class="preview" style="margin-top:8px">
       <div><div class="hint" style="margin:0" data-i18n="advTrigger">ADV trigger</div><div class="live" id="advLive">—</div></div>
@@ -308,16 +308,16 @@ const I18N={
 en:{
   sub:'Suzuka · remap console',tabKeys:'Keys',tabOta:'OTA',
   platTitle:'Platform',platHint:'Switch Mac / Windows maps (saved together). <b>ADV</b> marks the device platform (BLE detect or Opt+P).',
-  pcTitle:'PC keys to send',pcHint:'Full-size <b>108-key</b> layout (main + nav + numpad). Without modifiers, pick only 1 key; with modifiers, multi-select OK. Laptop <b>Fn</b> is not in HID — tap F / media keys.<br>Numpad: tap <b>Num</b> to switch digit/nav layer; Shift+Num or <b>double-tap Num</b> selects NumLk.',
+  pcTitle:'PC keys to send',pcHint:'Full-size <b>108-key</b> layout (main + nav + numpad). Pick modifiers and/or up to 6 keys. Hold on ADV keeps PC keys held (long-press). Laptop <b>Fn</b> is not in HID — tap F / media keys.<br>Numpad: tap <b>Num</b> to switch digit/nav layer; Shift+Num or <b>double-tap Num</b> selects NumLk.',
   pcWillRecv:'PC will receive',clear:'Clear',nextAdv:'Next: ADV',
   mapTitle:'Remap table',clearPlat:'Clear this platform',thAdv:'ADV trigger',thPc:'PC send',
   otaTitle:'Firmware OTA',otaHint:'Upload <code>firmware.bin</code>',pickFile:'Choose file',noFile:'No file',otaStart:'Start OTA',
-  advModalTitle:'Pick ADV trigger',advModalHint:'PC side: <b id="modalPc">—</b><br>Same rules: 1 key without mods; unlimited with mods.',
+  advModalTitle:'Pick ADV trigger',advModalHint:'PC side: <b id="modalPc">—</b><br>Same rules: modifiers and/or up to 6 keys. Hold follows ADV.',
   advTrigger:'ADV trigger',cancel:'Cancel',addMap:'Add to table',saveApply:'Save & apply',saving:'Saving…',
   none:'(none)',pcHintChip:'Tap keys to build PC combo',advHintChip:'Tap ADV keys to build trigger',
   mediaSys:'Media / system',bleOn:'Connected',bleOff:'Disconnected',
   editAdvPlat:'Editing ADV platform: ',editPlat:'Editing ',editPlatSuf:' maps',
-  onlyOneKey:'Without mods, pick only 1 key',numDigit:'Numpad: digits',numNav:'Numpad: nav',
+  onlyOneKey:'Max 6 keys',numDigit:'Numpad: digits',numNav:'Numpad: nav',
   pickPcFirst:'Pick the PC combo first',bothIncomplete:'Both sides incomplete',
   advDup:'ADV trigger already exists',added:'Added to ',addedSuf:' maps — remember to save',
   emptyMap:': no maps — unmapped keys blocked',
@@ -328,16 +328,16 @@ en:{
 zh:{
   sub:'铃鹿 · 重映射控制台',tabKeys:'键盘',tabOta:'OTA',
   platTitle:'平台',platHint:'切换编辑 Mac / Windows 映射（一起保存）。带 <b>ADV</b> 标记的是设备当前平台（蓝牙探测或 Opt+P）。',
-  pcTitle:'选择电脑端要发送的键',pcHint:'电脑端为 <b>108 键全尺寸</b>（主区 + 导航区 + 小键盘）。无控制键时只能选 1 个主键；有控制键时可多选。笔记本 <b>Fn</b> 不在 HID 里，请直接点 F / 媒体键。<br>小键盘点 <b>Num</b> 切换数字/导航层；先点 <b>Shift</b> 再点 Num、或 <b>双击 Num</b>，可选中 NumLk。',
+  pcTitle:'选择电脑端要发送的键',pcHint:'电脑端为 <b>108 键全尺寸</b>（主区 + 导航区 + 小键盘）。可多选修饰键与主键（主键最多 6）。ADV 按下则 PC 保持按下（支持长按）。笔记本 <b>Fn</b> 不在 HID 里，请直接点 F / 媒体键。<br>小键盘点 <b>Num</b> 切换数字/导航层；先点 <b>Shift</b> 再点 Num、或 <b>双击 Num</b>，可选中 NumLk。',
   pcWillRecv:'电脑将收到',clear:'清空',nextAdv:'下一步：选 ADV',
   mapTitle:'映射表',clearPlat:'清空当前平台映射',thAdv:'ADV 触发',thPc:'电脑发送',
   otaTitle:'固件 OTA',otaHint:'上传 <code>firmware.bin</code>',pickFile:'选择文件',noFile:'未选择文件',otaStart:'开始升级',
-  advModalTitle:'选择 ADV 上的触发组合',advModalHint:'电脑端：<b id="modalPc">—</b><br>同样规则：无控制键只能 1 键；有控制键不限个数。',
+  advModalTitle:'选择 ADV 上的触发组合',advModalHint:'电脑端：<b id="modalPc">—</b><br>同样规则：修饰键与/或最多 6 个主键；状态跟随 ADV。',
   advTrigger:'ADV 触发',cancel:'取消',addMap:'加入映射表',saveApply:'保存并应用',saving:'保存中…',
   none:'（未选择）',pcHintChip:'点按键组成电脑端组合',advHintChip:'点 ADV 键组成触发组合',
   mediaSys:'媒体 / 系统',bleOn:'已连接',bleOff:'未连接',
   editAdvPlat:'正在编辑 ADV 当前平台：',editPlat:'正在编辑 ',editPlatSuf:' 映射',
-  onlyOneKey:'无控制键时只能选 1 个主键',numDigit:'小键盘：数字层',numNav:'小键盘：导航层',
+  onlyOneKey:'主键最多 6 个',numDigit:'小键盘：数字层',numNav:'小键盘：导航层',
   pickPcFirst:'请先选好电脑端组合',bothIncomplete:'两侧组合不完整',
   advDup:'ADV 触发组合与已有映射完全相同',added:'已加入',addedSuf:'映射表（记得保存）',
   emptyMap:'：暂无映射 — 未映射键屏蔽',
@@ -400,23 +400,17 @@ function parts(c,advSide){
 }
 function text(c,advSide){const p=parts(c,advSide);return p.length?p.join(' + '):'—'}
 function sig(c){return [...c.mods].sort().join(',')+'|'+[...c.keys].sort().join(',')}
-function valid(c){if(c.mods.length===0)return c.keys.length===1;return c.mods.length>=1}
+function valid(c){return c.mods.length>=1||c.keys.length>=1}
 function canToggleKey(c,id,isMod){
   if(isMod)return true;
-  if(c.mods.length===0){
-    if(c.keys.includes(id))return true;
-    return c.keys.length===0;
-  }
   return c.keys.length<6||c.keys.includes(id);
 }
 
 function toggle(c,id,isMod){
   if(isMod){
     const i=c.mods.indexOf(id);
-    if(i>=0){
-      c.mods.splice(i,1);
-      if(c.mods.length===0&&c.keys.length>1)c.keys=[c.keys[0]];
-    }else if(c.mods.length<4)c.mods.push(id);
+    if(i>=0)c.mods.splice(i,1);
+    else if(c.mods.length<4)c.mods.push(id);
     return;
   }
   const i=c.keys.indexOf(id);
